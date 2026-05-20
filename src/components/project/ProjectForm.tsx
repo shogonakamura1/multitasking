@@ -28,6 +28,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
   const [workdir, setWorkdir] = useState(project?.workdir ?? "");
   const [status, setStatus] = useState(project?.status ?? "active");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const guard = useCompositionGuard();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,9 +61,9 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
     }
   };
 
+  // Tauri の WebView では window.confirm が効かないため、アプリ内の2段階確認にする
   const handleDelete = async () => {
     if (!project) return;
-    if (!confirm(`「${project.name}」を削除しますか？（タスクも削除されます）`)) return;
     setSubmitting(true);
     try {
       await deleteProject(project.id);
@@ -145,9 +146,25 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
           </select>
         </div>
 
+        {project && confirmingDelete && (
+          <div className="project-form__confirm">
+            <span className="project-form__confirm-msg">
+              「{project.name}」を削除しますか？（タスクも削除されます）
+            </span>
+            <div className="project-form__confirm-actions">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingDelete(false)} disabled={submitting}>
+                やめる
+              </Button>
+              <Button type="button" variant="danger" size="sm" onClick={() => void handleDelete()} disabled={submitting}>
+                {submitting ? "削除中..." : "削除する"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="project-form__actions">
-          {project && (
-            <Button type="button" variant="danger" size="sm" onClick={handleDelete} disabled={submitting}>
+          {project && !confirmingDelete && (
+            <Button type="button" variant="danger" size="sm" onClick={() => setConfirmingDelete(true)} disabled={submitting}>
               削除
             </Button>
           )}
