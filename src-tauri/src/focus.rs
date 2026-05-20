@@ -358,9 +358,12 @@ fn name_match(
 ) -> Option<(String, Option<String>)> {
     let haystack_lower = format!("{} {}", window_title, app_name).to_lowercase();
 
+    // プロジェクト名だけでなく workdir のフォルダ名でも一致させる
+    // （例: プロジェクト名「糸島補助金」/ workdir ".../itoshima-pro" → "itoshima-pro" で一致）
     let matched_project = projects.iter().find(|p| {
-        let needle = p.name.to_lowercase();
-        haystack_lower.contains(&needle)
+        project_aliases(p)
+            .iter()
+            .any(|alias| haystack_lower.contains(alias))
     })?;
 
     // Check if any task title also appears in the window title
@@ -374,6 +377,25 @@ fn name_match(
         .map(|t| t.id.clone());
 
     Some((matched_project.id.clone(), matched_task))
+}
+
+/// マッチ用エイリアス（小文字、2文字以上）: プロジェクト名 + workdir のフォルダ名。
+/// 名前が日本語でも、英字のディレクトリ名でウィンドウタイトルと一致できるようにする。
+fn project_aliases(p: &crate::models::Project) -> Vec<String> {
+    let mut aliases = Vec::new();
+    let name = p.name.trim().to_lowercase();
+    if name.chars().count() >= 2 {
+        aliases.push(name);
+    }
+    if let Some(dir) = &p.workdir {
+        if let Some(base) = std::path::Path::new(dir).file_name().and_then(|s| s.to_str()) {
+            let base = base.trim().to_lowercase();
+            if base.chars().count() >= 2 {
+                aliases.push(base);
+            }
+        }
+    }
+    aliases
 }
 
 /// Ask local Ollama to identify which project the window title belongs to.
