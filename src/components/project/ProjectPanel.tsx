@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import { useBoardStore } from "../../store/boardStore";
 import { useCompositionGuard } from "../../hooks/useCompositionGuard";
 import type { Project, Task } from "../../lib/types";
@@ -84,8 +84,16 @@ export function ProjectPanel({
     inputRef.current?.focus();
   };
 
+  // 発光色はプロジェクト固有の色を使う
+  const panelStyle = {
+    "--focus-color": `var(--proj-${project.color}, var(--proj-slate))`,
+  } as CSSProperties;
+
   return (
-    <section className={`project-panel ${isFocused ? "project-panel--focused" : ""}`}>
+    <section
+      className={`project-panel ${isFocused ? "project-panel--focused" : ""}`}
+      style={panelStyle}
+    >
       <header className="project-panel__header">
         <span
           className="project-dot"
