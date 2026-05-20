@@ -25,7 +25,11 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
     getFocusDetection()
       .then(setFocusEnabled)
-      .catch((err) => console.error("getFocusDetection failed:", err));
+      .catch((err) => {
+        console.error("getFocusDetection failed:", err);
+        // 取得失敗時もトグルを操作可能にする（既定 ON 前提）
+        setFocusEnabled(true);
+      });
   }, []);
 
   const toggleFocus = async () => {
