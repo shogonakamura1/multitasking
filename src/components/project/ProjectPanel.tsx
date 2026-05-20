@@ -67,6 +67,16 @@ export function ProjectPanel({
     void reorderProjectTasks(project.id, [...ids, ...doneTasks.map((t) => t.id)]);
   };
 
+  // ▲▼ ボタンによる並べ替え（未完了タスク内で1つ上/下に移動）
+  const moveTask = (taskId: string, dir: "up" | "down") => {
+    const ids = activeTasks.map((t) => t.id);
+    const i = ids.indexOf(taskId);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i === -1 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    void reorderProjectTasks(project.id, [...ids, ...doneTasks.map((t) => t.id)]);
+  };
+
   useEffect(() => {
     if (adding) inputRef.current?.focus();
   }, [adding]);
@@ -113,13 +123,17 @@ export function ProjectPanel({
       </header>
 
       <ul className="todo-list">
-        {activeTasks.map((task) => (
+        {activeTasks.map((task, index) => (
           <TodoItem
             key={task.id}
             task={task}
             highlight={task.id === highlightTaskId}
             focused={task.id === glowTaskId}
             draggable
+            onMoveUp={() => moveTask(task.id, "up")}
+            onMoveDown={() => moveTask(task.id, "down")}
+            canMoveUp={index > 0}
+            canMoveDown={index < activeTasks.length - 1}
             isDragging={draggingId === task.id}
             isDropTarget={dropTargetId === task.id}
             onDragStart={() => setDraggingId(task.id)}
@@ -200,6 +214,10 @@ interface TodoItemProps {
   onDragLeave?: () => void;
   onDrop?: () => void;
   onDragEnd?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }
 
 const ACTIVE_STATUS_LABEL: Partial<Record<Task["status"], string>> = {
@@ -221,6 +239,10 @@ function TodoItem({
   onDragLeave,
   onDrop,
   onDragEnd,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
 }: TodoItemProps) {
   const setStatus = useBoardStore((s) => s.setStatus);
   const updateTask = useBoardStore((s) => s.updateTask);
@@ -307,6 +329,27 @@ function TodoItem({
       {statusLabel && !done && (
         <span className={`todo-item__status todo-item__status--${task.status}`}>
           {statusLabel}
+        </span>
+      )}
+
+      {onMoveUp && onMoveDown && (
+        <span className="todo-item__move">
+          <button
+            onClick={onMoveUp}
+            disabled={!canMoveUp}
+            title="上へ"
+            aria-label="ひとつ上へ移動"
+          >
+            ▲
+          </button>
+          <button
+            onClick={onMoveDown}
+            disabled={!canMoveDown}
+            title="下へ"
+            aria-label="ひとつ下へ移動"
+          >
+            ▼
+          </button>
         </span>
       )}
 

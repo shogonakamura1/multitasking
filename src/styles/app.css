@@ -1191,7 +1191,7 @@
 
 .project-panel__name {
   flex: 1;
-  font-size: 23px;
+  font-size: calc(23px * var(--fs));
   font-weight: 700;
   color: var(--text);
   overflow: hidden;
@@ -1225,7 +1225,7 @@
 }
 
 .todo-empty {
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
   color: var(--text-faint);
   font-style: italic;
   padding: var(--space-2);
@@ -1292,11 +1292,13 @@
 
 .todo-item__title {
   flex: 1;
-  font-size: 22px;
+  min-width: 0;
+  font-size: calc(22px * var(--fs));
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   cursor: text;
 }
 
@@ -1307,7 +1309,7 @@
 
 .todo-item__edit {
   flex: 1;
-  font-size: 22px;
+  font-size: calc(22px * var(--fs));
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--focus-ring);
@@ -1316,7 +1318,7 @@
 }
 
 .todo-item__status {
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   font-weight: 600;
   padding: 1px 4px;
   border-radius: 3px;
@@ -1340,6 +1342,24 @@
 .todo-item:hover .todo-item__delete { opacity: 1; }
 .todo-item__delete:hover { color: var(--state-blocked); }
 
+/* 並べ替え ▲▼ */
+.todo-item__move {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+.todo-item:hover .todo-item__move { opacity: 1; }
+.todo-item__move button {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-faint);
+  padding: 1px 2px;
+}
+.todo-item__move button:hover:not(:disabled) { color: var(--text); }
+.todo-item__move button:disabled { opacity: 0.25; cursor: default; }
+
 /* 追加 */
 .project-panel__add {
   flex-shrink: 0;
@@ -1350,7 +1370,7 @@
 .todo-add__btn {
   width: 100%;
   text-align: left;
-  font-size: 21px;
+  font-size: calc(21px * var(--fs));
   color: var(--text-dim);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -1364,7 +1384,7 @@
 
 .todo-add__input {
   width: 100%;
-  font-size: 21px;
+  font-size: calc(21px * var(--fs));
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--focus-ring);
