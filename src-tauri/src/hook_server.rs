@@ -32,9 +32,31 @@ struct ServerCtx {
 /// Spawn the axum hook server on a random loopback port.
 /// Returns a `HookState` ready to be registered with Tauri.
 pub async fn start(app: AppHandle) -> HookState {
-    let port = find_free_port().await;
-    let token = generate_token();
+    // 永続化した port/token を読み込み、再起動後も .claude/settings.json が有効なままにする
+    let persisted = load_persisted(&app);
+    let token = persisted
+        .as_ref()
+        .map(|p| p.token.clone())
+        .unwrap_or_else(generate_token);
+
+    // 保存済みポートに bind を試み、使用中なら OS 任せの空きポートへ退避
+    let listener = match persisted.as_ref() {
+        Some(p) => match TcpListener::bind(format!("127.0.0.1:{}", p.port)).await {
+            Ok(l) => l,
+            Err(_) => TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("failed to bind hook server port"),
+        },
+        None => TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind hook server port"),
+    };
+
+    let port = listener.local_addr().expect("no local addr").port();
     let url = format!("http://127.0.0.1:{port}/hook");
+
+    // 次回起動でも同じ port/token を使えるよう保存
+    save_persisted(&app, port, &token);
 
     let ctx = ServerCtx {
         token: token.clone(),
@@ -45,10 +67,6 @@ pub async fn start(app: AppHandle) -> HookState {
         .route("/hook", post(handle_hook))
         .with_state(ctx);
 
-    let listener = TcpListener::bind(format!("127.0.0.1:{port}"))
-        .await
-        .expect("failed to bind hook server port");
-
     tokio::spawn(async move {
         axum::serve(listener, router)
             .await
@@ -57,6 +75,39 @@ pub async fn start(app: AppHandle) -> HookState {
 
     HookState {
         info: Mutex::new(HookInfo { port, token, url }),
+    }
+}
+
+// ── Persisted hook config (stable port/token across restarts) ─────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedHook {
+    port: u16,
+    token: String,
+}
+
+fn hook_config_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("hook.json"))
+}
+
+fn load_persisted(app: &AppHandle) -> Option<PersistedHook> {
+    let path = hook_config_path(app)?;
+    let s = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&s).ok()
+}
+
+fn save_persisted(app: &AppHandle, port: u16, token: &str) {
+    let Some(path) = hook_config_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(s) = serde_json::to_string(&PersistedHook {
+        port,
+        token: token.to_string(),
+    }) {
+        let _ = std::fs::write(path, s);
     }
 }
 
@@ -528,14 +579,6 @@ fn send_os_notification(app: &AppHandle, project_name: &str, task_title: Option<
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
-
-async fn find_free_port() -> u16 {
-    // Bind to port 0 and let the OS assign a free port
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("failed to find free port");
-    listener.local_addr().expect("no local addr").port()
-}
 
 fn generate_token() -> String {
     let mut rng = rand::thread_rng();
