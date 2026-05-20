@@ -245,11 +245,18 @@ pub fn find_project_by_workdir<'a>(
     projects: &'a [Project],
     workdir: &str,
 ) -> Option<&'a Project> {
+    // 末尾スラッシュを正規化し、パス境界で前方一致させる
+    // （例: cwd=/a/itoshima-pro が workdir=/a/itoshima-pro/ と一致、
+    //   かつ /a/ito のような部分文字列には誤一致しない）
+    let target = workdir.trim_end_matches('/');
     projects
         .iter()
         .filter_map(|p| {
-            let wd = p.workdir.as_deref()?;
-            if workdir.starts_with(wd) {
+            let wd = p.workdir.as_deref()?.trim_end_matches('/');
+            if wd.is_empty() {
+                return None;
+            }
+            if target == wd || target.starts_with(&format!("{wd}/")) {
                 Some((p, wd.len()))
             } else {
                 None

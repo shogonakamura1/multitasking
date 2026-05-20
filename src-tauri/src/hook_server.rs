@@ -9,10 +9,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 
-use crate::models::{
-    AiCompletedPayload, CreateProjectInput, CreateTaskInput, HookInfo, HookRequest, ProjectStatus,
-    TaskStatus,
-};
+use crate::models::{AiCompletedPayload, CreateTaskInput, HookInfo, HookRequest, TaskStatus};
 use crate::repository;
 use crate::commands::DbState;
 
@@ -108,27 +105,11 @@ fn process_hook(app: &AppHandle, req: &HookRequest) -> Result<(), String> {
     // Load all projects to find the best workdir match
     let projects = repository::list_projects(&conn)?;
 
+    // workdir に一致する既存プロジェクトのみ対象にする（勝手に新規作成しない）。
+    // 一致させたい場合はアプリでそのプロジェクトの「作業ディレクトリ」を設定する。
     let project = match repository::find_project_by_workdir(&projects, &req.workdir) {
         Some(p) => p.clone(),
-        None => {
-            // "prompt" / "extract" は workdir 未登録なら、フォルダ名でプロジェクトを自動作成
-            if req.event == "prompt" || req.event == "extract" {
-                match project_name_from_workdir(&req.workdir) {
-                    Some(name) => repository::create_project(
-                        &conn,
-                        CreateProjectInput {
-                            name,
-                            color: pick_color(projects.len()),
-                            status: ProjectStatus::Active,
-                            workdir: Some(req.workdir.clone()),
-                        },
-                    )?,
-                    None => return Ok(()),
-                }
-            } else {
-                return Ok(()); // no match — safe ignore
-            }
-        }
+        None => return Ok(()), // no match — safe ignore
     };
 
     match req.event.as_str() {
@@ -384,16 +365,23 @@ fn extract_tasks_via_llm(user_text: &str, assistant_text: &str) -> Option<Vec<St
 
     const EXTRACT_TIMEOUT_SECS: u64 = 12;
 
+    let system = "あなたはタスク抽出器です。出力は必ず日本語のみ。中国語・英語・説明文・前置きは一切禁止。\
+タスク本文だけを1行ずつ出力する。";
+
     let prompt = format!(
-        "次はユーザーの依頼とAIの応答です。ここから、ユーザーが次にやるべき具体的なタスク(TODO)を抽出してください。\
-各タスクは短い日本語で1行ずつ、箇条書き記号や番号を付けずに出力。タスクが無ければ何も出力しない。\n\n\
+        "次の「依頼」と「応答」から、ユーザーが次に実際にやるべき具体的な作業(TODO)だけを抽出してください。\n\
+・実際に着手すべき行動だけを書く（選択肢の列挙・提案の全項目・一般的な説明は含めない）。\n\
+・各タスクは短い日本語の命令形で1行。箇条書き記号や番号は付けない。\n\
+・明確にやるべき作業が無ければ、何も出力しない。\n\n\
 [依頼]\n{user_text}\n\n[応答]\n{assistant_text}"
     );
 
     let body = serde_json::json!({
         "model": OLLAMA_LLM_MODEL,
+        "system": system,
         "prompt": prompt,
-        "stream": false
+        "stream": false,
+        "options": { "temperature": 0.2 }
     });
 
     let response = ureq::post("http://localhost:11434/api/generate")
@@ -429,21 +417,6 @@ fn truncate_title(s: &str, max: usize) -> String {
         t.push('…');
         t
     }
-}
-
-/// workdir のフォルダ名を取り出す（自動作成プロジェクト名に使う）。
-fn project_name_from_workdir(workdir: &str) -> Option<String> {
-    std::path::Path::new(workdir)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// 自動作成プロジェクトの色をパレットから順番に割り当てる。
-fn pick_color(index: usize) -> String {
-    const PALETTE: &[&str] = &["blue", "green", "red", "amber", "purple", "slate"];
-    PALETTE[index % PALETTE.len()].to_string()
 }
 
 fn handle_stop(
