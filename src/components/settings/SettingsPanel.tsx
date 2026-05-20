@@ -54,21 +54,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   };
 
-  // Claude Code hooks は標準入力に JSON（cwd / prompt 等）を渡すので、python3 で読み取って転送する
-  const promptHookCmd = hookInfo
-    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"prompt","workdir":d.get("cwd",""),"task":d.get("prompt","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
-    : "";
-
-  const stopHookCmd = hookInfo
-    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"stop","workdir":d.get("cwd","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
+  // Claude Code hooks は標準入力に JSON（cwd / transcript_path 等）を渡すので python3 で読み取って転送する。
+  // Stop 時に transcript（会話ログ）のパスを送り、サーバ側でローカルLLMが依頼＋応答からタスクを抽出する。
+  const extractHookCmd = hookInfo
+    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"extract","workdir":d.get("cwd",""),"transcript":d.get("transcript_path","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
     : "";
 
   const settingsJson = hookInfo
     ? JSON.stringify(
         {
           hooks: {
-            UserPromptSubmit: [{ hooks: [{ type: "command", command: promptHookCmd }] }],
-            Stop: [{ hooks: [{ type: "command", command: stopHookCmd }] }],
+            Stop: [{ hooks: [{ type: "command", command: extractHookCmd }] }],
           },
         },
         null,
@@ -138,18 +134,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </section>
 
             <section className="settings-section">
-              <h4 className="settings-section__title">Claude Code 連携（タスク自動追加 / 状態検知）</h4>
+              <h4 className="settings-section__title">Claude Code 連携（LLMでタスク自動抽出）</h4>
               <p className="settings-section__desc">
                 プロジェクトの <code>.claude/settings.json</code> に下の JSON を貼り付けます。
                 <br />
-                ・<strong>UserPromptSubmit</strong>: Claude に頼んだ内容を、作業ディレクトリに対応する
-                プロジェクトのタスクとして<strong>自動追加</strong>し「AI 作業中」にします
-                （対応プロジェクトが無ければフォルダ名で自動作成）。
+                <strong>Stop</strong>（AI が応答を終えたタイミング）で、その回の
+                <strong>あなたの依頼とAIの応答</strong>を会話ログから読み取り、
+                ローカル LLM（<code>qwen2.5:1.5b</code>）が<strong>やるべきタスクを抽出</strong>して
+                自動追加します（作業ディレクトリに対応するプロジェクトへ。無ければフォルダ名で自動作成）。
                 <br />
-                ・<strong>Stop</strong>: AI が応答を終えると、そのタスクを「進行中（あなたの番）」に更新し
-                OS 通知を出します。
+                ※ 標準入力の JSON（cwd・transcript_path）を読むため <code>python3</code>（macOS 標準）を使用します。
                 <br />
-                ※ 標準入力の JSON を読むため <code>python3</code>（macOS 標準）を使用します。
+                ※ 抽出には <code>ollama serve</code> の起動が必要です（未起動なら何も追加されません）。
               </p>
 
               <div className="settings-snippet">
@@ -161,18 +157,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </div>
 
               <div className="settings-snippet">
-                <div className="settings-snippet__label">UserPromptSubmit コマンド単体（タスク自動追加）</div>
-                <pre className="settings-snippet__code">{promptHookCmd}</pre>
-                <Button variant="ghost" size="sm" onClick={() => void copy(promptHookCmd, "prompt")}>
-                  {copied === "prompt" ? "✓ コピー済み" : "コピー"}
-                </Button>
-              </div>
-
-              <div className="settings-snippet">
-                <div className="settings-snippet__label">Stop コマンド単体（進行中に更新）</div>
-                <pre className="settings-snippet__code">{stopHookCmd}</pre>
-                <Button variant="ghost" size="sm" onClick={() => void copy(stopHookCmd, "stop")}>
-                  {copied === "stop" ? "✓ コピー済み" : "コピー"}
+                <div className="settings-snippet__label">Stop コマンド単体（依頼＋応答からタスク抽出）</div>
+                <pre className="settings-snippet__code">{extractHookCmd}</pre>
+                <Button variant="ghost" size="sm" onClick={() => void copy(extractHookCmd, "extract")}>
+                  {copied === "extract" ? "✓ コピー済み" : "コピー"}
                 </Button>
               </div>
             </section>

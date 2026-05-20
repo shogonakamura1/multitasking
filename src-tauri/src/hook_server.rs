@@ -111,8 +111,8 @@ fn process_hook(app: &AppHandle, req: &HookRequest) -> Result<(), String> {
     let project = match repository::find_project_by_workdir(&projects, &req.workdir) {
         Some(p) => p.clone(),
         None => {
-            // "prompt"（タスク自動追加）は workdir 未登録なら、フォルダ名でプロジェクトを自動作成
-            if req.event == "prompt" {
+            // "prompt" / "extract" は workdir 未登録なら、フォルダ名でプロジェクトを自動作成
+            if req.event == "prompt" || req.event == "extract" {
                 match project_name_from_workdir(&req.workdir) {
                     Some(name) => repository::create_project(
                         &conn,
@@ -135,6 +135,7 @@ fn process_hook(app: &AppHandle, req: &HookRequest) -> Result<(), String> {
         "stop" => handle_stop(app, &conn, &project.id, &project.name, req.task.as_deref()),
         "start" => handle_start(app, &conn, &project.id, req.task.as_deref()),
         "prompt" => handle_prompt(app, &conn, &project.id, req.task.as_deref()),
+        "extract" => handle_extract(app, &conn, &project.id, req.transcript.as_deref()),
         "notify" => handle_notify(app, &project.id, &project.name, None, None),
         _ => Ok(()), // unknown event — ignore
     }
@@ -178,6 +179,243 @@ fn handle_prompt(
 
     let _ = app.emit("board_changed", ());
     Ok(())
+}
+
+/// "extract" イベント: transcript JSONL から直近の user/assistant メッセージを取り出し、
+/// ローカル LLM でやるべきタスクを抽出して `todo` で追加する。
+fn handle_extract(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    transcript_path: Option<&str>,
+) -> Result<(), String> {
+    let path = match transcript_path {
+        Some(p) => p,
+        None => {
+            eprintln!("[hook_server] extract: no transcript path provided");
+            return Ok(());
+        }
+    };
+
+    // ── transcript JSONL を読み込む ────────────────────────────────────────
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[hook_server] extract: failed to read transcript {path}: {e}");
+            return Ok(());
+        }
+    };
+
+    let (last_user, last_assistant) = extract_last_messages(&content);
+
+    if last_user.is_empty() && last_assistant.is_empty() {
+        eprintln!("[hook_server] extract: no user/assistant messages found in transcript");
+        return Ok(());
+    }
+
+    // ── LLM でタスク抽出 ────────────────────────────────────────────────────
+    let titles = match extract_tasks_via_llm(&last_user, &last_assistant) {
+        Some(t) => t,
+        None => return Ok(()), // LLM 未起動/失敗 → 黙ってスキップ
+    };
+
+    if titles.is_empty() {
+        return Ok(());
+    }
+
+    // ── DB に重複チェックしながら登録 ──────────────────────────────────────
+    let mut created_count = 0usize;
+    for title in &titles {
+        match repository::find_task_by_title(conn, project_id, title)? {
+            Some(_) => {} // 重複 — スキップ
+            None => {
+                repository::create_task(
+                    conn,
+                    CreateTaskInput {
+                        project_id: project_id.to_string(),
+                        title: title.clone(),
+                        status: TaskStatus::Todo,
+                        next_action: None,
+                        note: None,
+                        due_today: false,
+                    },
+                )?;
+                created_count += 1;
+            }
+        }
+    }
+
+    if created_count > 0 {
+        let _ = app.emit("board_changed", ());
+    }
+    Ok(())
+}
+
+// ── Transcript / LLM helpers (pub(crate) for unit tests) ─────────────────────
+
+/// JSONL の各行を解析して直近の user / assistant テキストを返す。
+/// content 配列にも文字列にも対応する防御的パース。
+pub(crate) fn extract_last_messages(jsonl: &str) -> (String, String) {
+    let mut last_user = String::new();
+    let mut last_assistant = String::new();
+
+    for line in jsonl.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+
+        // type フィールドで "user" / "assistant" を判定
+        let msg_type = val
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let text = extract_text_from_entry(&val);
+        if text.is_empty() {
+            continue;
+        }
+
+        match msg_type {
+            "user" => last_user = text,
+            "assistant" => last_assistant = text,
+            _ => {}
+        }
+    }
+
+    (last_user, last_assistant)
+}
+
+/// JSON エントリからテキストを連結して返す。
+/// `message.content` が文字列の場合と配列の場合に対応。
+fn extract_text_from_entry(val: &serde_json::Value) -> String {
+    // message.content を探す
+    let content = match val.get("message").and_then(|m| m.get("content")) {
+        Some(c) => c,
+        None => return String::new(),
+    };
+
+    content_to_text(content)
+}
+
+/// content が文字列 / 配列どちらでもテキストに変換する。
+fn content_to_text(content: &serde_json::Value) -> String {
+    if let Some(s) = content.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = content.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    String::new()
+}
+
+/// タスク行テキストのクリーニング: 箇条書き記号・番号を除去し trim。
+/// 空行・"なし"・"none" を除外し、最大 5 件に制限して返す。
+pub(crate) fn clean_task_lines(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(|line| {
+            let s = line.trim();
+            // 先頭の記号 / 番号を除去: "- ", "* ", "・", "1. ", "1) " 等
+            let s = s
+                .trim_start_matches(|c: char| matches!(c, '-' | '*' | '・' | '•'))
+                .trim_start();
+            // "1. " / "1) " パターン
+            let s = if let Some(rest) = strip_leading_number(s) {
+                rest
+            } else {
+                s
+            };
+            s.trim().to_string()
+        })
+        .filter(|s| {
+            !s.is_empty()
+                && !s.eq_ignore_ascii_case("none")
+                && !s.eq_ignore_ascii_case("なし")
+                && !s.eq_ignore_ascii_case("ない")
+        })
+        .take(5)
+        .collect()
+}
+
+/// "1. text" / "1) text" / "(1) text" の先頭番号を剥がす。
+fn strip_leading_number(s: &str) -> Option<&str> {
+    let bytes = s.as_bytes();
+    let mut pos = 0usize;
+    // optional '('
+    if bytes.first() == Some(&b'(') {
+        pos += 1;
+    }
+    // digits (at least one)
+    let digit_start = pos;
+    while pos < bytes.len() && bytes[pos].is_ascii_digit() {
+        pos += 1;
+    }
+    if pos == digit_start {
+        return None; // no digits
+    }
+    // closing punctuation: '.' or ')'
+    if pos >= bytes.len() || (bytes[pos] != b'.' && bytes[pos] != b')') {
+        return None;
+    }
+    pos += 1;
+    // optional single space
+    if pos < bytes.len() && bytes[pos] == b' ' {
+        pos += 1;
+    }
+    Some(s[pos..].trim())
+}
+
+/// LLM を呼んでタスク行を返す。失敗時は None。
+fn extract_tasks_via_llm(user_text: &str, assistant_text: &str) -> Option<Vec<String>> {
+    use crate::focus::OLLAMA_LLM_MODEL;
+
+    const EXTRACT_TIMEOUT_SECS: u64 = 12;
+
+    let prompt = format!(
+        "次はユーザーの依頼とAIの応答です。ここから、ユーザーが次にやるべき具体的なタスク(TODO)を抽出してください。\
+各タスクは短い日本語で1行ずつ、箇条書き記号や番号を付けずに出力。タスクが無ければ何も出力しない。\n\n\
+[依頼]\n{user_text}\n\n[応答]\n{assistant_text}"
+    );
+
+    let body = serde_json::json!({
+        "model": OLLAMA_LLM_MODEL,
+        "prompt": prompt,
+        "stream": false
+    });
+
+    let response = ureq::post("http://localhost:11434/api/generate")
+        .timeout(std::time::Duration::from_secs(EXTRACT_TIMEOUT_SECS))
+        .send_json(body);
+
+    let response = match response {
+        Ok(r) => r,
+        Err(_) => return None, // 接続失敗/タイムアウト → スキップ
+    };
+
+    let json: serde_json::Value = match response.into_json() {
+        Ok(j) => j,
+        Err(_) => return None,
+    };
+
+    let raw = json
+        .get("response")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())?;
+
+    Some(clean_task_lines(&raw))
 }
 
 /// プロンプト先頭行を最大 `max` 文字に丸めてタスク名にする。
@@ -331,4 +569,95 @@ fn generate_token() -> String {
     (0..32)
         .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
         .collect()
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── extract_last_messages ─────────────────────────────────────────────────
+
+    #[test]
+    fn extract_messages_string_content() {
+        let jsonl = r#"{"type":"user","message":{"role":"user","content":"テストを追加して"}}
+{"type":"assistant","message":{"role":"assistant","content":"了解しました。テストを追加します。"}}"#;
+        let (user, assistant) = extract_last_messages(jsonl);
+        assert_eq!(user, "テストを追加して");
+        assert_eq!(assistant, "了解しました。テストを追加します。");
+    }
+
+    #[test]
+    fn extract_messages_array_content() {
+        let jsonl = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"バグを直して"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"直しました"},{"type":"text","text":"確認してください"}]}}"#;
+        let (user, assistant) = extract_last_messages(jsonl);
+        assert_eq!(user, "バグを直して");
+        assert_eq!(assistant, "直しました\n確認してください");
+    }
+
+    #[test]
+    fn extract_messages_takes_last_of_each_type() {
+        let jsonl = r#"{"type":"user","message":{"role":"user","content":"最初の依頼"}}
+{"type":"assistant","message":{"role":"assistant","content":"最初の応答"}}
+{"type":"user","message":{"role":"user","content":"2番目の依頼"}}
+{"type":"assistant","message":{"role":"assistant","content":"2番目の応答"}}"#;
+        let (user, assistant) = extract_last_messages(jsonl);
+        assert_eq!(user, "2番目の依頼");
+        assert_eq!(assistant, "2番目の応答");
+    }
+
+    #[test]
+    fn extract_messages_skips_invalid_lines() {
+        let jsonl = "invalid json\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"有効\"}}";
+        let (user, _) = extract_last_messages(jsonl);
+        assert_eq!(user, "有効");
+    }
+
+    #[test]
+    fn extract_messages_empty_input() {
+        let (user, assistant) = extract_last_messages("");
+        assert!(user.is_empty());
+        assert!(assistant.is_empty());
+    }
+
+    // ── clean_task_lines ──────────────────────────────────────────────────────
+
+    #[test]
+    fn clean_task_lines_removes_bullet_symbols() {
+        let raw = "- タスクA\n* タスクB\n・タスクC\n• タスクD";
+        let result = clean_task_lines(raw);
+        assert_eq!(result, vec!["タスクA", "タスクB", "タスクC", "タスクD"]);
+    }
+
+    #[test]
+    fn clean_task_lines_removes_numbered_prefix() {
+        let raw = "1. 最初のタスク\n2. 2番目のタスク\n(3) 3番目のタスク";
+        let result = clean_task_lines(raw);
+        assert_eq!(result, vec!["最初のタスク", "2番目のタスク", "3番目のタスク"]);
+    }
+
+    #[test]
+    fn clean_task_lines_filters_empty_and_none() {
+        let raw = "有効なタスク\n\nnone\nなし\nもう一つ";
+        let result = clean_task_lines(raw);
+        assert_eq!(result, vec!["有効なタスク", "もう一つ"]);
+    }
+
+    #[test]
+    fn clean_task_lines_limits_to_five() {
+        let raw = "A\nB\nC\nD\nE\nF\nG";
+        let result = clean_task_lines(raw);
+        assert_eq!(result.len(), 5);
+        assert_eq!(result[0], "A");
+        assert_eq!(result[4], "E");
+    }
+
+    #[test]
+    fn clean_task_lines_plain_text_unchanged() {
+        let raw = "テストを書く\nドキュメントを更新する";
+        let result = clean_task_lines(raw);
+        assert_eq!(result, vec!["テストを書く", "ドキュメントを更新する"]);
+    }
 }

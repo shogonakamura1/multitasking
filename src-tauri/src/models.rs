@@ -152,6 +152,7 @@ pub struct HookRequest {
     pub event: String,
     pub workdir: String,
     pub task: Option<String>,
+    pub transcript: Option<String>,
     pub message: Option<String>,
 }
 

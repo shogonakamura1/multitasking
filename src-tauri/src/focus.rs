@@ -15,9 +15,9 @@ use crate::repository;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Ollama model used for LLM-based project inference.
+/// Ollama model used for LLM-based project inference and task extraction.
 /// 軽量・高速・多言語（日本語）に強い分類向けモデル。約1GB。
-const FOCUS_LLM_MODEL: &str = "qwen2.5:1.5b";
+pub(crate) const OLLAMA_LLM_MODEL: &str = "qwen2.5:1.5b";
 
 /// Timeout for a single Ollama request (seconds).
 const OLLAMA_TIMEOUT_SECS: u64 = 2;
@@ -415,7 +415,7 @@ fn llm_match(window_title: &str, projects: &[crate::models::Project]) -> Option<
     );
 
     let body = serde_json::json!({
-        "model": FOCUS_LLM_MODEL,
+        "model": OLLAMA_LLM_MODEL,
         "prompt": prompt,
         "stream": false
     });
