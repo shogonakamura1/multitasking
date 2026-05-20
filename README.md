@@ -10,4 +10,14 @@ AI待ち時間に別プロジェクトへ移っても「何をやっていたか
 
 ## 技術構成
 
-Tauri / React + TypeScript / SQLite / ローカルHTTP（Claude Code hooks受け口）
+Tauri 2 / React 19 + TypeScript / Vite / SQLite / ローカルHTTP（Claude Code hooks受け口）
+
+## 開発
+
+```bash
+npm install            # 依存インストール
+npm run tauri dev      # デスクトップアプリを開発起動
+npm run build          # フロントのビルド + 型チェック
+```
+
+前提: Node、Rust（rustup）、macOS は Xcode Command Line Tools。
