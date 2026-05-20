@@ -8,6 +8,11 @@ interface BoardState {
   tasks: Task[];
   selectedTaskId: string | null;
 
+  // マウス直下から判定した「集中先」
+  focusProjectId: string | null;
+  focusTaskId: string | null;
+  setFocus: (projectId: string | null, taskId: string | null) => void;
+
   // 導出セレクタ
   waitingTasks: () => Task[];
   inProgressTasks: () => Task[];
@@ -34,6 +39,11 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   projects: [],
   tasks: [],
   selectedTaskId: null,
+
+  focusProjectId: null,
+  focusTaskId: null,
+  setFocus: (projectId, taskId) =>
+    set({ focusProjectId: projectId, focusTaskId: taskId }),
 
   // 導出セレクタ
   waitingTasks: () => get().tasks.filter((t) => t.status === "waiting_ai"),

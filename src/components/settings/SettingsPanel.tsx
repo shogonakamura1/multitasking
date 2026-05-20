@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HookInfo } from "../../lib/types";
-import { getHookInfo } from "../../lib/ipc";
+import { getHookInfo, getFocusDetection, setFocusDetection } from "../../lib/ipc";
 import { Button } from "../ui/Button";
 import { showErrorToast } from "../../hooks/useTauriEvent";
 
@@ -12,6 +12,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [hookInfo, setHookInfo] = useState<HookInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
+  const [focusEnabled, setFocusEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     getHookInfo()
@@ -21,7 +22,23 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         showErrorToast("設定情報の取得に失敗しました");
       })
       .finally(() => setLoading(false));
+
+    getFocusDetection()
+      .then(setFocusEnabled)
+      .catch((err) => console.error("getFocusDetection failed:", err));
   }, []);
+
+  const toggleFocus = async () => {
+    const next = !focusEnabled;
+    setFocusEnabled(next);
+    try {
+      await setFocusDetection(next);
+    } catch (err) {
+      setFocusEnabled(!next);
+      console.error("setFocusDetection failed:", err);
+      showErrorToast("集中検知の切り替えに失敗しました");
+    }
+  };
 
   const copy = async (text: string, label: string) => {
     try {
@@ -50,6 +67,27 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         {loading && <div className="settings-panel__loading">読み込み中...</div>}
+
+        <section className="settings-section">
+          <h4 className="settings-section__title">集中先の自動検知（マウス直下）</h4>
+          <p className="settings-section__desc">
+            1秒ごとにマウスカーソル直下のウィンドウを調べ、取り組み中のプロジェクトを推定して
+            カードを青く発光させます。Chrome などのタブ名はローカル LLM（Ollama）で推定します。
+            <br />
+            <strong>※ タブ名の取得には macOS の「画面収録」権限が必要</strong>です
+            （システム設定 &gt; プライバシーとセキュリティ &gt; 画面収録 で multitasking を許可）。
+            LLM 推定には <code>ollama serve</code> の起動とモデル取得が必要です。
+          </p>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={focusEnabled ?? false}
+              onChange={() => void toggleFocus()}
+              disabled={focusEnabled === null}
+            />
+            集中先の自動検知を有効にする
+          </label>
+        </section>
 
         {hookInfo && (
           <>

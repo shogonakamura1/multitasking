@@ -76,6 +76,8 @@ interface HookInfo {
 | `set_task_status` | `{ id: string, status: TaskStatus }` | `Task` | ワンクリック状態変更。`updatedAt` 更新 |
 | `reorder_tasks` | `{ ids: string[] }` | `void` | 並び替え（`sortOrder` 再採番） |
 | `get_hook_info` | なし | `HookInfo` | 設定画面・curl スニペット生成用 |
+| `set_focus_detection` | `{ enabled: boolean }` | `void` | マウス直下フォーカス検知の ON/OFF（既定 ON、設定で永続化） |
+| `get_focus_detection` | なし | `boolean` | 現在の ON/OFF 状態 |
 
 - すべての command は失敗時 `Result<T, String>`（エラーメッセージ文字列）を返す。
 
@@ -85,6 +87,20 @@ interface HookInfo {
 |-----------|---------|-------------|
 | `board_changed` | なし | `get_board` を再取得してUI更新（hooks由来の更新もこれ経由） |
 | `ai_completed` | `{ projectId: string, taskId: string \| null, projectName: string, taskTitle: string \| null }` | トースト表示＋ハイライト（OS通知は Rust 側で送出） |
+| `focus_changed` | `{ projectId: string \| null, taskId: string \| null, source: "name" \| "llm" \| "none", appName: string, windowTitle: string }` | マウス直下から判定した「集中先」。`projectId` のカードを青ネオン発光、`taskId` のタスクを発光。`taskId=null` かつ `projectId` ありの場合はフロントが**最上位の未完了タスク**を発光（迷ったら上優先）。`projectId=null` は発光解除 |
+
+## マウス直下フォーカス検知（Rust, macOS）
+
+1秒ごとにマウスカーソル直下のウィンドウを調べ、どのプロジェクト/タスクに取り組んでいるかを判定して `focus_changed` を emit する。
+
+- **取得**: `CGEventGetLocation` でカーソル座標、`CGWindowListCopyWindowInfo(onScreenOnly)` で最前面ウィンドウ群の bounds / owner名(アプリ) / name(タイトル) を取得し、座標を含む最前面ウィンドウを特定。
+  - **タイトル取得には Screen Recording 権限が必要**（macOS）。未許可時は owner名のみで判定にフォールバック。
+- **判定（優先順）**:
+  1. **名前一致**: ウィンドウタイトル or アプリ名にプロジェクト名が含まれれば即マッチ（`source="name"`）。さらにタイトルにタスク名が含まれればその `taskId`。
+  2. **LLM 推定**: 名前一致せず、ブラウザ（Chrome/Safari/Arc 等）の場合、ローカル Ollama（`http://localhost:11434/api/generate`）にプロジェクト一覧＋タイトルを渡し、どのプロジェクトかを推定（`source="llm"`）。Ollama 未起動/タイムアウト時はスキップ（`source="none"`, `projectId=null`）。
+  3. どれにも当たらなければ `projectId=null`（発光解除）。
+- **debounce**: 判定結果（projectId+taskId）が前回と同じなら emit しない（チラつき防止）。
+- 既定 ON。設定で OFF 可・状態は永続化。
 
 ## ローカル HTTP hooks 受け口（Rust 側 axum）
 

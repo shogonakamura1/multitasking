@@ -1,9 +1,10 @@
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::focus::FocusState;
+use crate::hook_server::HookState;
 use crate::models::{Board, CreateProjectInput, CreateTaskInput, HookInfo, Project, Task, TaskStatus};
 use crate::repository;
-use crate::hook_server::HookState;
 
 pub struct DbState(pub Mutex<rusqlite::Connection>);
 
@@ -130,4 +131,30 @@ pub fn reorder_tasks(
 pub fn get_hook_info(hook_state: State<'_, HookState>) -> Result<HookInfo, String> {
     let info = hook_state.info.lock().map_err(|e| e.to_string())?;
     Ok(info.clone())
+}
+
+// ── Focus detection commands ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn set_focus_detection(
+    enabled: bool,
+    focus_state: State<'_, FocusState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    focus_state.enabled.store(enabled, Ordering::Relaxed);
+
+    // Persist best-effort: write to app data dir
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let path = data_dir.join("focus_detection.txt");
+        let _ = std::fs::write(&path, if enabled { "1" } else { "0" });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_focus_detection(focus_state: State<'_, FocusState>) -> Result<bool, String> {
+    use std::sync::atomic::Ordering;
+    Ok(focus_state.enabled.load(Ordering::Relaxed))
 }

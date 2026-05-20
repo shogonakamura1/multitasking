@@ -8,10 +8,20 @@ interface ProjectPanelProps {
   project: Project;
   onEdit: (project: Project) => void;
   highlightTaskId?: string | null;
+  /** マウス直下から判定された集中先プロジェクトか（青ネオン発光） */
+  isFocused?: boolean;
+  /** 集中先タスク（null かつ isFocused のときは最上位の未完了タスクを光らせる） */
+  focusTaskId?: string | null;
 }
 
 /** プロジェクト1つ分のパネル（グリッドセル）。Todoリスト＋下部にインライン追加。 */
-export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelProps) {
+export function ProjectPanel({
+  project,
+  onEdit,
+  highlightTaskId,
+  isFocused = false,
+  focusTaskId = null,
+}: ProjectPanelProps) {
   const tasks = useBoardStore((s) => s.tasks);
   const createTask = useBoardStore((s) => s.createTask);
   const reorderProjectTasks = useBoardStore((s) => s.reorderProjectTasks);
@@ -24,6 +34,15 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
       doneTasks: mine.filter((t) => t.status === "done"),
     };
   }, [tasks, project.id]);
+
+  // 光らせるタスク: 明示指定があればそれ、無ければ最上位の未完了タスク（迷ったら上優先）
+  const glowTaskId = useMemo(() => {
+    if (!isFocused) return null;
+    if (focusTaskId && activeTasks.some((t) => t.id === focusTaskId)) {
+      return focusTaskId;
+    }
+    return activeTasks[0]?.id ?? null;
+  }, [isFocused, focusTaskId, activeTasks]);
 
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -66,7 +85,7 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
   };
 
   return (
-    <section className="project-panel">
+    <section className={`project-panel ${isFocused ? "project-panel--focused" : ""}`}>
       <header className="project-panel__header">
         <span
           className="project-dot"
@@ -91,6 +110,7 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
             key={task.id}
             task={task}
             highlight={task.id === highlightTaskId}
+            focused={task.id === glowTaskId}
             draggable
             isDragging={draggingId === task.id}
             isDropTarget={dropTargetId === task.id}
@@ -163,6 +183,7 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
 interface TodoItemProps {
   task: Task;
   highlight: boolean;
+  focused?: boolean;
   draggable?: boolean;
   isDragging?: boolean;
   isDropTarget?: boolean;
@@ -183,6 +204,7 @@ const ACTIVE_STATUS_LABEL: Partial<Record<Task["status"], string>> = {
 function TodoItem({
   task,
   highlight,
+  focused = false,
   draggable = false,
   isDragging = false,
   isDropTarget = false,
@@ -221,9 +243,9 @@ function TodoItem({
     <li
       className={`todo-item todo-item--${task.status} ${done ? "todo-item--done" : ""} ${
         highlight ? "todo-item--highlight" : ""
-      } ${isDragging ? "todo-item--dragging" : ""} ${
-        isDropTarget ? "todo-item--drop-target" : ""
-      }`}
+      } ${focused ? "todo-item--focused" : ""} ${
+        isDragging ? "todo-item--dragging" : ""
+      } ${isDropTarget ? "todo-item--drop-target" : ""}`}
       draggable={draggable && !editing}
       onDragStart={onDragStart}
       onDragOver={onDragOver}

@@ -11,6 +11,8 @@ import type { Project } from "./lib/types";
 export default function App() {
   const fetchBoard = useBoardStore((s) => s.fetchBoard);
   const projects = useBoardStore((s) => s.projects);
+  const focusProjectId = useBoardStore((s) => s.focusProjectId);
+  const focusTaskId = useBoardStore((s) => s.focusTaskId);
 
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showProjectForm, setShowProjectForm] = useState(false);
@@ -106,6 +108,8 @@ export default function App() {
               project={p}
               onEdit={openEdit}
               highlightTaskId={highlightTaskId}
+              isFocused={focusProjectId === p.id}
+              focusTaskId={focusProjectId === p.id ? focusTaskId : null}
             />
           ))}
         </div>

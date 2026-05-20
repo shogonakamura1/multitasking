@@ -49,3 +49,11 @@ export async function reorderTasks(ids: string[]): Promise<void> {
 export async function getHookInfo(): Promise<HookInfo> {
   return invoke<HookInfo>("get_hook_info");
 }
+
+export async function setFocusDetection(enabled: boolean): Promise<void> {
+  return invoke<void>("set_focus_detection", { enabled });
+}
+
+export async function getFocusDetection(): Promise<boolean> {
+  return invoke<boolean>("get_focus_detection");
+}

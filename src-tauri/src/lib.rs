@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod focus;
 mod hook_server;
 mod models;
 mod repository;
@@ -13,6 +14,7 @@ use tauri::{
 };
 
 use commands::DbState;
+use focus::FocusState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,6 +41,20 @@ pub fn run() {
             let hook_state = tauri::async_runtime::block_on(hook_server::start(app_handle));
             app.manage(hook_state);
 
+            // Focus detection state — load persisted ON/OFF preference
+            let initial_enabled = {
+                let path = data_dir.join("focus_detection.txt");
+                std::fs::read_to_string(&path)
+                    .ok()
+                    .map(|s| s.trim() != "0")
+                    .unwrap_or(true) // default ON
+            };
+            app.manage(FocusState::new(initial_enabled));
+
+            // Start the focus-detection polling thread
+            let poller_handle = app.handle().clone();
+            focus::start_poller(poller_handle);
+
             // Tray icon
             let handle = app.handle();
             build_tray(handle)?;
@@ -64,6 +80,8 @@ pub fn run() {
             commands::set_task_status,
             commands::reorder_tasks,
             commands::get_hook_info,
+            commands::set_focus_detection,
+            commands::get_focus_detection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

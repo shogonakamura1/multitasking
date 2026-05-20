@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useBoardStore } from "../store/boardStore";
-import type { AiCompletedPayload } from "../lib/types";
+import type { AiCompletedPayload, FocusPayload } from "../lib/types";
 
 export interface Toast {
   id: string;
@@ -26,14 +26,20 @@ export function showErrorToast(message: string) {
 
 export function useTauriEvent() {
   const fetchBoard = useBoardStore((s) => s.fetchBoard);
+  const setFocus = useBoardStore((s) => s.setFocus);
 
   useEffect(() => {
     let unlistenBoardChanged: (() => void) | null = null;
     let unlistenAiCompleted: (() => void) | null = null;
+    let unlistenFocusChanged: (() => void) | null = null;
 
     const setup = async () => {
       unlistenBoardChanged = await listen("board_changed", () => {
         void fetchBoard();
+      });
+
+      unlistenFocusChanged = await listen<FocusPayload>("focus_changed", (event) => {
+        setFocus(event.payload.projectId, event.payload.taskId);
       });
 
       unlistenAiCompleted = await listen<AiCompletedPayload>(
@@ -62,6 +68,7 @@ export function useTauriEvent() {
     return () => {
       unlistenBoardChanged?.();
       unlistenAiCompleted?.();
+      unlistenFocusChanged?.();
     };
-  }, [fetchBoard]);
+  }, [fetchBoard, setFocus]);
 }

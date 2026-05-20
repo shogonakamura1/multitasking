@@ -61,3 +61,13 @@ export interface AiCompletedPayload {
   projectName: string;
   taskTitle: string | null;
 }
+
+export type FocusSource = "name" | "llm" | "none";
+
+export interface FocusPayload {
+  projectId: string | null;
+  taskId: string | null;
+  source: FocusSource;
+  appName: string;
+  windowTitle: string;
+}
