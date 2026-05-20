@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Project, ProjectColor, CreateProjectInput } from "../../lib/types";
 import { useBoardStore } from "../../store/boardStore";
+import { useCompositionGuard } from "../../hooks/useCompositionGuard";
 import { Button } from "../ui/Button";
 
 const COLORS: { key: ProjectColor; label: string }[] = [
@@ -27,6 +28,7 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
   const [workdir, setWorkdir] = useState(project?.workdir ?? "");
   const [status, setStatus] = useState(project?.status ?? "active");
   const [submitting, setSubmitting] = useState(false);
+  const guard = useCompositionGuard();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,9 +89,10 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
             className="project-form__input"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onCompositionEnd={guard.onCompositionEnd}
             onKeyDown={(e) => {
               // IME 変換確定の Enter でフォーム送信しない
-              if (e.key === "Enter" && e.nativeEvent.isComposing) {
+              if (e.key === "Enter" && guard.isImeEnter(e)) {
                 e.preventDefault();
               }
             }}

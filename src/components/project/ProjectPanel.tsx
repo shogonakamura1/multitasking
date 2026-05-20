@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBoardStore } from "../../store/boardStore";
+import { useCompositionGuard } from "../../hooks/useCompositionGuard";
 import type { Project, Task } from "../../lib/types";
 
 interface ProjectPanelProps {
@@ -24,6 +25,7 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const guard = useCompositionGuard();
 
   useEffect(() => {
     if (adding) inputRef.current?.focus();
@@ -78,9 +80,11 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
             className="todo-add__input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onCompositionEnd={guard.onCompositionEnd}
             onKeyDown={(e) => {
-              // IME 変換確定の Enter を誤発火させない（変換後の Enter のみ追加）
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              if (e.key === "Enter") {
+                // IME 変換確定の Enter は無視。確定後の Enter のみ追加。
+                if (guard.isImeEnter(e)) return;
                 e.preventDefault();
                 void submitAdd();
               } else if (e.key === "Escape") {
@@ -127,6 +131,7 @@ function TodoItem({ task, highlight }: TodoItemProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
+  const guard = useCompositionGuard();
 
   const done = task.status === "done";
   const statusLabel = ACTIVE_STATUS_LABEL[task.status];
@@ -167,9 +172,11 @@ function TodoItem({ task, highlight }: TodoItemProps) {
           value={draft}
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
+          onCompositionEnd={guard.onCompositionEnd}
           onKeyDown={(e) => {
-            // IME 変換確定の Enter を誤発火させない
-            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            if (e.key === "Enter") {
+              // IME 変換確定の Enter は無視
+              if (guard.isImeEnter(e)) return;
               e.preventDefault();
               commitRename();
             } else if (e.key === "Escape") {
@@ -182,11 +189,11 @@ function TodoItem({ task, highlight }: TodoItemProps) {
       ) : (
         <span
           className="todo-item__title"
-          onDoubleClick={() => {
+          onClick={() => {
             setDraft(task.title);
             setEditing(true);
           }}
-          title="ダブルクリックで編集"
+          title="クリックで編集"
         >
           {task.title}
         </span>
