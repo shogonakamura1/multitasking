@@ -27,6 +27,7 @@ interface BoardState {
   updateTask: (task: Task) => Promise<Task>;
   deleteTask: (id: string) => Promise<void>;
   setStatus: (id: string, status: TaskStatus) => Promise<void>;
+  reorderProjectTasks: (projectId: string, orderedIds: string[]) => Promise<void>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -160,6 +161,28 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       await get().fetchBoard();
       console.error("setStatus failed:", err);
       showErrorToast("ステータスの変更に失敗しました");
+    }
+  },
+
+  reorderProjectTasks: async (projectId, orderedIds) => {
+    // 楽観更新: 対象プロジェクトのタスクを新しい順序に並べ替え、sortOrder を採番し直す
+    set((s) => {
+      const byId = new Map(s.tasks.map((t) => [t.id, t]));
+      const reordered = orderedIds
+        .map((id, i) => {
+          const t = byId.get(id);
+          return t ? { ...t, sortOrder: i } : null;
+        })
+        .filter((t): t is Task => t !== null);
+      const others = s.tasks.filter((t) => t.projectId !== projectId);
+      return { tasks: [...others, ...reordered] };
+    });
+    try {
+      await ipc.reorderTasks(orderedIds);
+    } catch (err) {
+      await get().fetchBoard();
+      console.error("reorderProjectTasks failed:", err);
+      showErrorToast("並べ替えに失敗しました");
     }
   },
 }));

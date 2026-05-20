@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import { useBoardStore } from "../../store/boardStore";
 import { useCompositionGuard } from "../../hooks/useCompositionGuard";
 import type { Project, Task } from "../../lib/types";
@@ -13,19 +14,39 @@ interface ProjectPanelProps {
 export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelProps) {
   const tasks = useBoardStore((s) => s.tasks);
   const createTask = useBoardStore((s) => s.createTask);
+  const reorderProjectTasks = useBoardStore((s) => s.reorderProjectTasks);
 
-  // このプロジェクトのタスク。未完了を上、完了を下に。
-  const sortedTasks = useMemo(() => {
+  // このプロジェクトのタスク。未完了（並べ替え対象）と完了に分ける。
+  const { activeTasks, doneTasks } = useMemo(() => {
     const mine = tasks.filter((t) => t.projectId === project.id);
-    const active = mine.filter((t) => t.status !== "done");
-    const done = mine.filter((t) => t.status === "done");
-    return [...active, ...done];
+    return {
+      activeTasks: mine.filter((t) => t.status !== "done"),
+      doneTasks: mine.filter((t) => t.status === "done"),
+    };
   }, [tasks, project.id]);
 
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const guard = useCompositionGuard();
+
+  // ドラッグ並べ替え（未完了タスクのみ。完了は末尾固定）
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  const handleDrop = (targetId: string) => {
+    const sourceId = draggingId;
+    setDraggingId(null);
+    setDropTargetId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const ids = activeTasks.map((t) => t.id);
+    const from = ids.indexOf(sourceId);
+    const to = ids.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, sourceId);
+    void reorderProjectTasks(project.id, [...ids, ...doneTasks.map((t) => t.id)]);
+  };
 
   useEffect(() => {
     if (adding) inputRef.current?.focus();
@@ -65,10 +86,37 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
       </header>
 
       <ul className="todo-list">
-        {sortedTasks.map((task) => (
-          <TodoItem key={task.id} task={task} highlight={task.id === highlightTaskId} />
+        {activeTasks.map((task) => (
+          <TodoItem
+            key={task.id}
+            task={task}
+            highlight={task.id === highlightTaskId}
+            draggable
+            isDragging={draggingId === task.id}
+            isDropTarget={dropTargetId === task.id}
+            onDragStart={() => setDraggingId(task.id)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (draggingId && draggingId !== task.id) setDropTargetId(task.id);
+            }}
+            onDragLeave={() =>
+              setDropTargetId((cur) => (cur === task.id ? null : cur))
+            }
+            onDrop={() => handleDrop(task.id)}
+            onDragEnd={() => {
+              setDraggingId(null);
+              setDropTargetId(null);
+            }}
+          />
         ))}
-        {sortedTasks.length === 0 && !adding && (
+        {doneTasks.map((task) => (
+          <TodoItem
+            key={task.id}
+            task={task}
+            highlight={task.id === highlightTaskId}
+          />
+        ))}
+        {activeTasks.length === 0 && doneTasks.length === 0 && !adding && (
           <li className="todo-empty">やることなし</li>
         )}
       </ul>
@@ -115,6 +163,14 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
 interface TodoItemProps {
   task: Task;
   highlight: boolean;
+  draggable?: boolean;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: DragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: () => void;
+  onDragEnd?: () => void;
 }
 
 const ACTIVE_STATUS_LABEL: Partial<Record<Task["status"], string>> = {
@@ -124,7 +180,18 @@ const ACTIVE_STATUS_LABEL: Partial<Record<Task["status"], string>> = {
 };
 
 /** 1件のやること: チェックで完了トグル、ダブルクリックで改名、ホバーで削除。 */
-function TodoItem({ task, highlight }: TodoItemProps) {
+function TodoItem({
+  task,
+  highlight,
+  draggable = false,
+  isDragging = false,
+  isDropTarget = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+}: TodoItemProps) {
   const setStatus = useBoardStore((s) => s.setStatus);
   const updateTask = useBoardStore((s) => s.updateTask);
   const deleteTask = useBoardStore((s) => s.deleteTask);
@@ -154,7 +221,15 @@ function TodoItem({ task, highlight }: TodoItemProps) {
     <li
       className={`todo-item todo-item--${task.status} ${done ? "todo-item--done" : ""} ${
         highlight ? "todo-item--highlight" : ""
+      } ${isDragging ? "todo-item--dragging" : ""} ${
+        isDropTarget ? "todo-item--drop-target" : ""
       }`}
+      draggable={draggable && !editing}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
     >
       <button
         className={`todo-item__check ${done ? "todo-item__check--on" : ""}`}
