@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBoardStore } from "./store/boardStore";
 import { useTauriEvent, registerToastCallback } from "./hooks/useTauriEvent";
 import { MasterPane } from "./components/board/MasterPane";
@@ -83,9 +83,19 @@ export default function App() {
   }, [isNarrow, selectedTaskId]);
 
   // 全タスク（表示順）: 待ち → 進行中 → 今日
-  const waitingTasks = useBoardStore((s) => s.waitingTasks());
-  const inProgressTasks = useBoardStore((s) => s.inProgressTasks());
-  const dueTodayTasks = useBoardStore((s) => s.dueTodayTasks());
+  // zustand v5: セレクタで新配列を返すと無限ループになるため raw tasks から useMemo で導出
+  const waitingTasks = useMemo(
+    () => tasks.filter((t) => t.status === "waiting_ai"),
+    [tasks]
+  );
+  const inProgressTasks = useMemo(
+    () => tasks.filter((t) => t.status === "in_progress"),
+    [tasks]
+  );
+  const dueTodayTasks = useMemo(
+    () => tasks.filter((t) => t.dueToday && t.status !== "done"),
+    [tasks]
+  );
 
   // キーボード操作（U-07 + WARN#2）
   const handleKeyDown = useCallback(
