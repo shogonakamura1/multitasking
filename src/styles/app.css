@@ -23,7 +23,7 @@
 }
 
 .app-header__logo {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -1170,7 +1170,7 @@
 
 .project-panel__name {
   flex: 1;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
   overflow: hidden;
@@ -1204,7 +1204,7 @@
 }
 
 .todo-empty {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-faint);
   font-style: italic;
   padding: var(--space-2);
@@ -1271,7 +1271,7 @@
 
 .todo-item__title {
   flex: 1;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1286,7 +1286,7 @@
 
 .todo-item__edit {
   flex: 1;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--focus-ring);
@@ -1295,7 +1295,7 @@
 }
 
 .todo-item__status {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   padding: 1px 4px;
   border-radius: 3px;
@@ -1329,7 +1329,7 @@
 .todo-add__btn {
   width: 100%;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -1343,7 +1343,7 @@
 
 .todo-add__input {
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--focus-ring);
