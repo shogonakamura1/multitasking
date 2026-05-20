@@ -62,10 +62,29 @@ pub fn start_poller(app: AppHandle) {
     });
 }
 
+/// macOS: 画面収録権限が無ければ一度だけ要求する。
+/// これを呼ぶことで OS がアプリを「画面収録」リストに登録し、ユーザーにプロンプトを出す。
+/// ウィンドウタイトル（タブ名）の取得にはこの権限が必要で、未許可だと kCGWindowName が空になる。
+#[cfg(target_os = "macos")]
+fn ensure_screen_recording_access() {
+    use core_graphics::access::ScreenCaptureAccess;
+    let access = ScreenCaptureAccess::default();
+    if !access.preflight() {
+        // 未許可: プロンプトを出し、システム設定の画面収録リストにアプリを登録する。
+        access.request();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ensure_screen_recording_access() {}
+
 // ── Poll loop ─────────────────────────────────────────────────────────────────
 
 fn run_poll_loop(app: AppHandle) {
     let mut prev: Option<(Option<String>, Option<String>)> = None; // (project_id, task_id)
+
+    // 起動時に一度だけ画面収録権限を要求（リスト登録＋プロンプト）
+    ensure_screen_recording_access();
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
