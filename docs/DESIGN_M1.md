@@ -75,18 +75,22 @@ CREATE INDEX idx_tasks_status  ON tasks(status);
 
 ## 4. Rust commands（フロント↔コア API）
 
+> 確定 API は `docs/IPC_CONTRACT.md` が正本。以下は概要。
+
 | command | 入出力 | 用途 |
 |---------|--------|------|
-| `list_board` | → `{ waiting, inProgress, today, projects }` | マスター描画用の集約取得 |
-| `get_task` | `id` → `Task` | ディテール表示 |
+| `get_board` | → `{ projects, tasks }` | 全件取得（グルーピングはフロントで導出） |
 | `create_project` / `update_project` / `delete_project` | Project | プロジェクトCRUD |
 | `create_task` / `update_task` / `delete_task` | Task | タスクCRUD |
 | `set_task_status` | `id, status` | ワンクリック状態変更（楽観更新） |
-| `reorder` | ids[] | 並び替え |
+| `reorder_tasks` | ids[] | 並び替え |
+| `get_hook_info` | → `{ port, token, url }` | 設定画面・curlスニペット用 |
+
+> ディテール表示は `get_board` で取得済みのタスクをフロントの store から参照する（個別 `get_task` は設けない）。
 
 イベント（Rust→フロント emit）:
 - `board_changed`: 何らかの更新（hooks含む）でマスター再取得を促す
-- `ai_completed`: `{ projectId, taskId }` 通知トースト用
+- `ai_completed`: `{ projectId, taskId, projectName, taskTitle }` 通知トースト用
 
 ## 5. ローカルHTTP hooks 受け口
 
