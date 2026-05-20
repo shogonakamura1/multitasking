@@ -167,7 +167,13 @@ fn process_hook(app: &AppHandle, req: &HookRequest) -> Result<(), String> {
         "stop" => handle_stop(app, &conn, &project.id, &project.name, req.task.as_deref()),
         "start" => handle_start(app, &conn, &project.id, req.task.as_deref()),
         "prompt" => handle_prompt(app, &conn, &project.id, req.task.as_deref()),
-        "extract" => handle_extract(app, &conn, &project.id, req.transcript.as_deref()),
+        "extract" => handle_extract(
+            app,
+            &conn,
+            &project.id,
+            &project.name,
+            req.transcript.as_deref(),
+        ),
         "notify" => handle_notify(app, &project.id, &project.name, None, None),
         _ => Ok(()), // unknown event — ignore
     }
@@ -219,6 +225,7 @@ fn handle_extract(
     app: &AppHandle,
     conn: &rusqlite::Connection,
     project_id: &str,
+    project_name: &str,
     transcript_path: Option<&str>,
 ) -> Result<(), String> {
     let path = match transcript_path {
@@ -246,7 +253,7 @@ fn handle_extract(
     }
 
     // ── LLM でタスク抽出 ────────────────────────────────────────────────────
-    let titles = match extract_tasks_via_llm(&last_user, &last_assistant) {
+    let titles = match extract_tasks_via_llm(project_name, &last_user, &last_assistant) {
         Some(t) => t,
         None => return Ok(()), // LLM 未起動/失敗 → 黙ってスキップ
     };
@@ -411,24 +418,38 @@ fn strip_leading_number(s: &str) -> Option<&str> {
 }
 
 /// LLM を呼んでタスク行を返す。失敗時は None。
-fn extract_tasks_via_llm(user_text: &str, assistant_text: &str) -> Option<Vec<String>> {
-    use crate::focus::OLLAMA_LLM_MODEL;
+fn extract_tasks_via_llm(
+    project_name: &str,
+    user_text: &str,
+    assistant_text: &str,
+) -> Option<Vec<String>> {
+    // 質を優先し、抽出は一段大きいモデルを使う（時間より精度優先）
+    const EXTRACT_LLM_MODEL: &str = "qwen2.5:3b";
+    const EXTRACT_TIMEOUT_SECS: u64 = 25;
 
-    const EXTRACT_TIMEOUT_SECS: u64 = 12;
-
-    let system = "あなたはタスク抽出器です。出力は必ず日本語のみ。中国語・英語・説明文・前置きは一切禁止。\
-タスク本文だけを1行ずつ出力する。";
+    let system = "あなたは優秀なタスク抽出器です。出力は必ず日本語のみ（中国語・英語・前置き・説明文は禁止）。\
+各行は、後から単独で見ても何の作業か分かる、対象を含む具体的なタスク名にする。タスク名以外は一切出力しない。";
 
     let prompt = format!(
-        "次の「依頼」と「応答」から、ユーザーが次に実際にやるべき具体的な作業(TODO)だけを抽出してください。\n\
-・実際に着手すべき行動だけを書く（選択肢の列挙・提案の全項目・一般的な説明は含めない）。\n\
-・各タスクは短い日本語の命令形で1行。箇条書き記号や番号は付けない。\n\
-・明確にやるべき作業が無ければ、何も出力しない。\n\n\
+        "プロジェクト「{project_name}」での、ユーザーの依頼とAIの応答です。\n\
+ここから、次に実際に着手すべき作業を「対象＋具体的な動作」の形の、後から見て曖昧にならないタスク名として抽出してください。\n\n\
+ルール:\n\
+・各タスクは『〜の〜に対して〜する』『〜に〜を実装する』のように、対象と内容が分かる完全な一文にする（体言止め可）。\n\
+・『実装する』『調べる』『対応する』だけのような対象の無い曖昧な名前は禁止。必ず具体的な対象を含める。\n\
+・実際に着手する作業だけ。選択肢の列挙・一般的な説明・未確定の提案は含めない。\n\
+・1行1タスク、箇条書き記号や番号は付けない。最大3件。明確な作業が無ければ何も出力しない。\n\n\
+良い例:\n\
+汀線残差に対する白波インデックス(surf index)の相関分析を実装する\n\
+二見ヶ浦の全596シーンで白波量と汀線残差の散布図を作成する\n\
+悪い例:\n\
+実装する\n\
+白波インデックス\n\
+道Aと道B\n\n\
 [依頼]\n{user_text}\n\n[応答]\n{assistant_text}"
     );
 
     let body = serde_json::json!({
-        "model": OLLAMA_LLM_MODEL,
+        "model": EXTRACT_LLM_MODEL,
         "system": system,
         "prompt": prompt,
         "stream": false,

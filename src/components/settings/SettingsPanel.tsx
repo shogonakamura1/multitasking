@@ -140,7 +140,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 <br />
                 <strong>Stop</strong>（AI が応答を終えたタイミング）で、その回の
                 <strong>あなたの依頼とAIの応答</strong>を会話ログから読み取り、
-                ローカル LLM（<code>qwen2.5:1.5b</code>）が<strong>やるべきタスクを抽出</strong>して
+                ローカル LLM（<code>qwen2.5:3b</code>）が<strong>やるべきタスクを抽出</strong>して
                 自動追加します（作業ディレクトリに対応するプロジェクトへ。無ければフォルダ名で自動作成）。
                 <br />
                 ※ 標準入力の JSON（cwd・transcript_path）を読むため <code>python3</code>（macOS 標準）を使用します。
