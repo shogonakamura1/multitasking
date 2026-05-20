@@ -109,15 +109,16 @@ POST http://127.0.0.1:<port>/hook
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "event": "stop" | "start" | "notify",
+{ "event": "stop" | "start" | "prompt" | "notify",
   "workdir": "/abs/path/to/project",
-  "task": "optional title hint",
+  "task": "prompt text / title hint",
   "message": "optional" }
 ```
 
 挙動:
 - `127.0.0.1` のみ bind。`token` 不一致は 401。
-- `workdir` を `projects.workdir` と前方一致で突合（最も具体的＝最長一致を採用）。一致なしは 200 で無視（誤爆させない）。
+- `workdir` を `projects.workdir` と前方一致で突合（最も具体的＝最長一致を採用）。一致なしは 200 で無視（誤爆させない）。**ただし `event=prompt` のみ、一致なしならフォルダ名でプロジェクトを自動作成**。
+- `event=prompt`（Claude Code の UserPromptSubmit 用）: `task`（プロンプト本文）の先頭行を80文字に丸めてタスク名にし、**タスクを自動追加**して `waiting_ai` に。同名タスクがあれば作り直さず `waiting_ai` に再活性化（重複防止）。`board_changed` emit。
 - `event=stop`: 対象プロジェクトの `waiting_ai` タスクのうち **`updatedAt` 最古の1件**を `in_progress` に更新（D2）。task ヒントがあればタイトル一致を優先。更新後 `board_changed` と `ai_completed` を emit、OS通知を送出。
 - `event=start`: task ヒント一致 or 最新作成タスクを `waiting_ai` に。`board_changed` emit。
 - `event=notify`: 状態変更せず `ai_completed`（taskId=null 可）emit ＋ OS通知のみ。

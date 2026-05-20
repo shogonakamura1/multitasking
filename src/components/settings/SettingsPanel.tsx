@@ -54,12 +54,26 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   };
 
-  const stopHookCmd = hookInfo
-    ? `curl -s -X POST ${hookInfo.url} \\\n  -H "Authorization: Bearer ${hookInfo.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"event":"stop","workdir":"$(pwd)"}'`
+  // Claude Code hooks は標準入力に JSON（cwd / prompt 等）を渡すので、python3 で読み取って転送する
+  const promptHookCmd = hookInfo
+    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"prompt","workdir":d.get("cwd",""),"task":d.get("prompt","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
     : "";
 
-  const startHookCmd = hookInfo
-    ? `curl -s -X POST ${hookInfo.url} \\\n  -H "Authorization: Bearer ${hookInfo.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"event":"start","workdir":"$(pwd)"}'`
+  const stopHookCmd = hookInfo
+    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"stop","workdir":d.get("cwd","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
+    : "";
+
+  const settingsJson = hookInfo
+    ? JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [{ hooks: [{ type: "command", command: promptHookCmd }] }],
+            Stop: [{ hooks: [{ type: "command", command: stopHookCmd }] }],
+          },
+        },
+        null,
+        2
+      )
     : "";
 
   return (
@@ -124,39 +138,42 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </section>
 
             <section className="settings-section">
-              <h4 className="settings-section__title">Claude Code Stop Hook 設定</h4>
+              <h4 className="settings-section__title">Claude Code 連携（タスク自動追加 / 状態検知）</h4>
               <p className="settings-section__desc">
-                プロジェクトの <code>.claude/settings.json</code> に以下を追加します。
-                AI が完了するとタスクが「進行中」に切り替わり、OS 通知が届きます。
+                プロジェクトの <code>.claude/settings.json</code> に下の JSON を貼り付けます。
+                <br />
+                ・<strong>UserPromptSubmit</strong>: Claude に頼んだ内容を、作業ディレクトリに対応する
+                プロジェクトのタスクとして<strong>自動追加</strong>し「AI 作業中」にします
+                （対応プロジェクトが無ければフォルダ名で自動作成）。
+                <br />
+                ・<strong>Stop</strong>: AI が応答を終えると、そのタスクを「進行中（あなたの番）」に更新し
+                OS 通知を出します。
+                <br />
+                ※ 標準入力の JSON を読むため <code>python3</code>（macOS 標準）を使用します。
               </p>
 
               <div className="settings-snippet">
-                <div className="settings-snippet__label">Stop Hook（AI 完了 → 進行中に更新）</div>
+                <div className="settings-snippet__label">.claude/settings.json（プロジェクト直下）</div>
+                <pre className="settings-snippet__code">{settingsJson}</pre>
+                <Button variant="ghost" size="sm" onClick={() => void copy(settingsJson, "settings")}>
+                  {copied === "settings" ? "✓ コピー済み" : "コピー"}
+                </Button>
+              </div>
+
+              <div className="settings-snippet">
+                <div className="settings-snippet__label">UserPromptSubmit コマンド単体（タスク自動追加）</div>
+                <pre className="settings-snippet__code">{promptHookCmd}</pre>
+                <Button variant="ghost" size="sm" onClick={() => void copy(promptHookCmd, "prompt")}>
+                  {copied === "prompt" ? "✓ コピー済み" : "コピー"}
+                </Button>
+              </div>
+
+              <div className="settings-snippet">
+                <div className="settings-snippet__label">Stop コマンド単体（進行中に更新）</div>
                 <pre className="settings-snippet__code">{stopHookCmd}</pre>
                 <Button variant="ghost" size="sm" onClick={() => void copy(stopHookCmd, "stop")}>
                   {copied === "stop" ? "✓ コピー済み" : "コピー"}
                 </Button>
-              </div>
-
-              <div className="settings-snippet">
-                <div className="settings-snippet__label">Start Hook（AI 開始 → 待ちに更新）</div>
-                <pre className="settings-snippet__code">{startHookCmd}</pre>
-                <Button variant="ghost" size="sm" onClick={() => void copy(startHookCmd, "start")}>
-                  {copied === "start" ? "✓ コピー済み" : "コピー"}
-                </Button>
-              </div>
-
-              <div className="settings-snippet">
-                <div className="settings-snippet__label">.claude/settings.json 例</div>
-                <pre className="settings-snippet__code">{JSON.stringify(
-                  {
-                    hooks: {
-                      Stop: [{ command: `curl -s -X POST ${hookInfo.url} -H "Authorization: Bearer ${hookInfo.token}" -H "Content-Type: application/json" -d '{"event":"stop","workdir":"$(pwd)"}'` }],
-                    },
-                  },
-                  null,
-                  2
-                )}</pre>
               </div>
             </section>
           </>

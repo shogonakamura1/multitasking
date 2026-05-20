@@ -9,7 +9,10 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 
-use crate::models::{AiCompletedPayload, HookInfo, HookRequest, TaskStatus};
+use crate::models::{
+    AiCompletedPayload, CreateProjectInput, CreateTaskInput, HookInfo, HookRequest, ProjectStatus,
+    TaskStatus,
+};
 use crate::repository;
 use crate::commands::DbState;
 
@@ -107,15 +110,102 @@ fn process_hook(app: &AppHandle, req: &HookRequest) -> Result<(), String> {
 
     let project = match repository::find_project_by_workdir(&projects, &req.workdir) {
         Some(p) => p.clone(),
-        None => return Ok(()), // no match — safe ignore
+        None => {
+            // "prompt"（タスク自動追加）は workdir 未登録なら、フォルダ名でプロジェクトを自動作成
+            if req.event == "prompt" {
+                match project_name_from_workdir(&req.workdir) {
+                    Some(name) => repository::create_project(
+                        &conn,
+                        CreateProjectInput {
+                            name,
+                            color: pick_color(projects.len()),
+                            status: ProjectStatus::Active,
+                            workdir: Some(req.workdir.clone()),
+                        },
+                    )?,
+                    None => return Ok(()),
+                }
+            } else {
+                return Ok(()); // no match — safe ignore
+            }
+        }
     };
 
     match req.event.as_str() {
         "stop" => handle_stop(app, &conn, &project.id, &project.name, req.task.as_deref()),
         "start" => handle_start(app, &conn, &project.id, req.task.as_deref()),
+        "prompt" => handle_prompt(app, &conn, &project.id, req.task.as_deref()),
         "notify" => handle_notify(app, &project.id, &project.name, None, None),
         _ => Ok(()), // unknown event — ignore
     }
+}
+
+/// "prompt" イベント: ユーザがClaude Codeに頼んだ内容をタスクとして自動追加し、
+/// AI作業中(waiting_ai)にする。同名タスクがあれば作り直さず再活性化（重複防止）。
+fn handle_prompt(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    text: Option<&str>,
+) -> Result<(), String> {
+    let raw = match text {
+        Some(t) => t.trim(),
+        None => return Ok(()),
+    };
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let title = truncate_title(raw, 80);
+
+    match repository::find_task_by_title(conn, project_id, &title)? {
+        Some(t) => {
+            repository::set_task_status(conn, &t.id, TaskStatus::WaitingAi)?;
+        }
+        None => {
+            repository::create_task(
+                conn,
+                CreateTaskInput {
+                    project_id: project_id.to_string(),
+                    title,
+                    status: TaskStatus::WaitingAi,
+                    next_action: None,
+                    note: None,
+                    due_today: false,
+                },
+            )?;
+        }
+    }
+
+    let _ = app.emit("board_changed", ());
+    Ok(())
+}
+
+/// プロンプト先頭行を最大 `max` 文字に丸めてタスク名にする。
+fn truncate_title(s: &str, max: usize) -> String {
+    let first_line = s.lines().next().unwrap_or(s).trim();
+    let chars: Vec<char> = first_line.chars().collect();
+    if chars.len() <= max {
+        first_line.to_string()
+    } else {
+        let mut t: String = chars[..max].iter().collect();
+        t.push('…');
+        t
+    }
+}
+
+/// workdir のフォルダ名を取り出す（自動作成プロジェクト名に使う）。
+fn project_name_from_workdir(workdir: &str) -> Option<String> {
+    std::path::Path::new(workdir)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// 自動作成プロジェクトの色をパレットから順番に割り当てる。
+fn pick_color(index: usize) -> String {
+    const PALETTE: &[&str] = &["blue", "green", "red", "amber", "purple", "slate"];
+    PALETTE[index % PALETTE.len()].to_string()
 }
 
 fn handle_stop(
