@@ -43,6 +43,12 @@ export default function App() {
     [projects]
   );
 
+  // 件数に応じた列数: ceil(√n) で「2→2列, 3→上2下1, 4→2×2, 5→上3下2, 6→3×3」を満たす
+  const columns = useMemo(
+    () => Math.max(1, Math.ceil(Math.sqrt(visibleProjects.length))),
+    [visibleProjects.length]
+  );
+
   const openCreate = () => {
     setEditingProject(null);
     setShowProjectForm(true);
@@ -90,7 +96,10 @@ export default function App() {
           </button>
         </div>
       ) : (
-        <div className="project-grid">
+        <div
+          className="project-grid"
+          style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
+        >
           {visibleProjects.map((p) => (
             <ProjectPanel
               key={p.id}

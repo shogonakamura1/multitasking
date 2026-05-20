@@ -79,7 +79,8 @@ export function ProjectPanel({ project, onEdit, highlightTaskId }: ProjectPanelP
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // IME 変換確定の Enter を誤発火させない（変換後の Enter のみ追加）
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void submitAdd();
               } else if (e.key === "Escape") {
@@ -167,7 +168,8 @@ function TodoItem({ task, highlight }: TodoItemProps) {
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            // IME 変換確定の Enter を誤発火させない
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
               e.preventDefault();
               commitRename();
             } else if (e.key === "Escape") {

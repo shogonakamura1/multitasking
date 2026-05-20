@@ -87,6 +87,12 @@ export function ProjectForm({ project, onClose }: ProjectFormProps) {
             className="project-form__input"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              // IME 変換確定の Enter でフォーム送信しない
+              if (e.key === "Enter" && e.nativeEvent.isComposing) {
+                e.preventDefault();
+              }
+            }}
             placeholder="プロジェクト名"
             required
             autoFocus

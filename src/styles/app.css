@@ -1090,12 +1090,12 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  /* 窓幅で列数自動・各列等分（auto-fill で空トラックを保持し等分割を維持） */
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* 列数は件数に応じて App 側で算出しインライン指定（ceil(√n)）。各列・各行を等分。 */
+  grid-template-columns: repeat(1, 1fr);
   grid-auto-rows: minmax(0, 1fr);
   gap: var(--space-3);
   padding: var(--space-3);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .app-empty {
