@@ -16,7 +16,8 @@ use crate::repository;
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Ollama model used for LLM-based project inference.
-const FOCUS_LLM_MODEL: &str = "llama3.2";
+/// 軽量・高速・多言語（日本語）に強い分類向けモデル。約1GB。
+const FOCUS_LLM_MODEL: &str = "qwen2.5:1.5b";
 
 /// Timeout for a single Ollama request (seconds).
 const OLLAMA_TIMEOUT_SECS: u64 = 2;
