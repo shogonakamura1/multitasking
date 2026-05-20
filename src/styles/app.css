@@ -1081,3 +1081,222 @@
   color: var(--text-faint);
   flex-shrink: 0;
 }
+
+/* ============================================================
+   プロジェクトグリッド（等分割）
+   ============================================================ */
+
+.project-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* 窓幅で列数自動・各列等分（auto-fill で空トラックを保持し等分割を維持） */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+
+.app-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.app-empty__msg {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* プロジェクトパネル */
+.project-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.project-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.project-panel__name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-panel__edit {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast), background var(--duration-fast);
+}
+
+.project-panel__edit:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+/* Todoリスト */
+.todo-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+}
+
+.todo-empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
+  padding: var(--space-2);
+}
+
+/* やること1件 */
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+  transition: background var(--duration-fast);
+}
+
+.todo-item:hover {
+  background: var(--surface-2);
+}
+
+.todo-item--waiting_ai { border-left-color: var(--state-waiting); }
+.todo-item--in_progress { border-left-color: var(--state-progress); }
+.todo-item--blocked { border-left-color: var(--state-blocked); }
+.todo-item--done { opacity: 0.55; }
+.todo-item--highlight { animation: aiPulse 1s ease-in-out 3; }
+
+.todo-item__check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.todo-item__check:hover {
+  border-color: var(--text-dim);
+}
+
+.todo-item__check--on {
+  background: var(--state-waiting);
+  border-color: var(--state-waiting);
+  color: var(--surface-0);
+}
+
+.todo-item__title {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.todo-item--done .todo-item__title {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.todo-item__edit {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--focus-ring);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-1);
+}
+
+.todo-item__status {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.todo-item__status--waiting_ai { color: var(--state-waiting); border: 1px solid var(--state-waiting); }
+.todo-item__status--in_progress { color: var(--state-progress); border: 1px solid var(--state-progress); }
+.todo-item__status--blocked { color: var(--state-blocked); border: 1px solid var(--state-blocked); }
+
+.todo-item__delete {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  opacity: 0;
+  padding: 0 2px;
+  transition: opacity var(--duration-fast), color var(--duration-fast);
+}
+
+.todo-item:hover .todo-item__delete { opacity: 1; }
+.todo-item__delete:hover { color: var(--state-blocked); }
+
+/* 追加 */
+.project-panel__add {
+  flex-shrink: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.todo-add__btn {
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.todo-add__btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.todo-add__input {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--focus-ring);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
