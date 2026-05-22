@@ -245,14 +245,15 @@ pub fn find_project_by_workdir<'a>(
     projects: &'a [Project],
     workdir: &str,
 ) -> Option<&'a Project> {
-    // 末尾スラッシュを正規化し、パス境界で前方一致させる
-    // （例: cwd=/a/itoshima-pro が workdir=/a/itoshima-pro/ と一致、
-    //   かつ /a/ito のような部分文字列には誤一致しない）
-    let target = workdir.trim_end_matches('/');
+    // チルダ(~)を展開し、末尾スラッシュを正規化し、パス境界で前方一致させる。
+    // （cwd は絶対パスで来るが、workdir が "~/foo" のように保存されている場合に備える）
+    let target_owned = expand_tilde(workdir);
+    let target = target_owned.trim_end_matches('/');
     projects
         .iter()
         .filter_map(|p| {
-            let wd = p.workdir.as_deref()?.trim_end_matches('/');
+            let wd_owned = expand_tilde(p.workdir.as_deref()?);
+            let wd = wd_owned.trim_end_matches('/');
             if wd.is_empty() {
                 return None;
             }
@@ -264,6 +265,19 @@ pub fn find_project_by_workdir<'a>(
         })
         .max_by_key(|(_, len)| *len)
         .map(|(p, _)| p)
+}
+
+/// 先頭の `~` / `~/` を $HOME に展開する。展開できなければ元の文字列を返す。
+fn expand_tilde(path: &str) -> String {
+    if path == "~" {
+        return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{}/{}", home.trim_end_matches('/'), rest);
+        }
+    }
+    path.to_string()
 }
 
 /// Return waiting_ai tasks for a project, sorted by updated_at ascending (oldest first).
