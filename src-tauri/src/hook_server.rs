@@ -252,6 +252,11 @@ fn handle_extract(
         return Ok(());
     }
 
+    // ── 完了検知: 既存の未完了タスクのうち、このやり取りで完了したものを done に ──
+    if let Err(e) = mark_completed_tasks(app, conn, project_id, project_name, &last_user, &last_assistant) {
+        eprintln!("[hook_server] extract: mark_completed failed: {e}");
+    }
+
     // ── LLM でタスク抽出 ────────────────────────────────────────────────────
     let titles = match extract_tasks_via_llm(project_name, &last_user, &last_assistant) {
         Some(t) => t,
@@ -288,6 +293,91 @@ fn handle_extract(
         let _ = app.emit("board_changed", ());
     }
     Ok(())
+}
+
+/// 既存の未完了タスクのうち、やり取りから完了したと判断できるものを done にする。
+fn mark_completed_tasks(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    project_name: &str,
+    user_text: &str,
+    assistant_text: &str,
+) -> Result<(), String> {
+    let open_tasks: Vec<crate::models::Task> = repository::list_tasks(conn)?
+        .into_iter()
+        .filter(|t| t.project_id == project_id && !matches!(t.status, TaskStatus::Done))
+        .collect();
+    if open_tasks.is_empty() {
+        return Ok(());
+    }
+
+    let titles: Vec<&str> = open_tasks.iter().map(|t| t.title.as_str()).collect();
+    let completed = match detect_completed_via_llm(project_name, &titles, user_text, assistant_text) {
+        Some(c) => c,
+        None => return Ok(()), // LLM 未起動/失敗 → スキップ
+    };
+
+    let mut changed = false;
+    for done_title in &completed {
+        // 一覧の文言と完全一致するものだけ done に（誤チェック防止）
+        if let Some(t) = open_tasks.iter().find(|t| &t.title == done_title) {
+            repository::set_task_status(conn, &t.id, TaskStatus::Done)?;
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = app.emit("board_changed", ());
+    }
+    Ok(())
+}
+
+/// タスク一覧のうち、やり取りから完了したと判断できる文言を返す（一覧の文言そのまま）。
+fn detect_completed_via_llm(
+    project_name: &str,
+    titles: &[&str],
+    user_text: &str,
+    assistant_text: &str,
+) -> Option<Vec<String>> {
+    const MODEL: &str = "qwen2.5:7b";
+    const TIMEOUT_SECS: u64 = 45;
+
+    let list = titles
+        .iter()
+        .map(|t| format!("- {t}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let system = "あなたはタスクの完了判定器です。出力は必ず日本語のみ。\
+与えたタスク一覧のうち、やり取りから『完了した』と確信できるものだけを、一覧の文言そのまま1行ずつ出力する。\
+完了が読み取れないものや一覧に無い文言は出力しない。記号・前置き・説明は禁止。";
+
+    let prompt = format!(
+        "プロジェクト「{project_name}」。\n\
+下の【タスク一覧】のうち、【やり取り】から完了したと判断できるものだけを、一覧の文言そのまま1行ずつ出力してください。\n\
+・「実装した」「完了」「できた」「直した」「追加した」「修正した」など、明確に完了が読み取れるものだけ。\n\
+・少しでも不明なら出力しない。該当が無ければ空。\n\
+・記号や番号は付けず、一覧の文言をそのまま書く。\n\n\
+【タスク一覧】\n{list}\n\n[依頼]\n{user_text}\n\n[応答]\n{assistant_text}"
+    );
+
+    let body = serde_json::json!({
+        "model": MODEL,
+        "system": system,
+        "prompt": prompt,
+        "stream": false,
+        "options": { "temperature": 0.1 }
+    });
+
+    let response = ureq::post("http://localhost:11434/api/generate")
+        .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
+        .send_json(body)
+        .ok()?;
+
+    let json: serde_json::Value = response.into_json().ok()?;
+    let raw = json.get("response").and_then(|v| v.as_str())?.trim().to_string();
+
+    Some(clean_task_lines(&raw))
 }
 
 // ── Transcript / LLM helpers (pub(crate) for unit tests) ─────────────────────
