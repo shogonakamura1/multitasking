@@ -147,7 +147,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 <br />
                 <strong>Stop</strong>（AI が応答を終えたタイミング）で、その回の
                 <strong>あなたの依頼とAIの応答</strong>を会話ログから読み取り、
-                ローカル LLM（<code>qwen2.5:3b</code>）が<strong>やるべきタスクを抽出</strong>して
+                ローカル LLM（<code>qwen2.5:7b</code>）が<strong>本当に必要な確定タスクだけを厳選</strong>して
                 自動追加します（作業ディレクトリに対応する既存プロジェクトのみ。一致しなければ何もしません）。
                 <br />
                 ※ ポート/トークンはアプリの <code>hook.json</code> から実行時に読むため、
