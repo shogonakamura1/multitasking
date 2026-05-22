@@ -19,8 +19,21 @@ use crate::repository;
 /// 軽量・高速・多言語（日本語）に強い分類向けモデル。約1GB。
 pub(crate) const OLLAMA_LLM_MODEL: &str = "qwen2.5:1.5b";
 
+/// Ollama model used for screen OCR task recognition.
+/// 高品質タスク照合に使用するより大きなモデル。
+const OLLAMA_SCREEN_MODEL: &str = "qwen2.5:3b";
+
 /// Timeout for a single Ollama request (seconds).
 const OLLAMA_TIMEOUT_SECS: u64 = 2;
+
+/// Timeout for the OCR+LLM screen recognition request (seconds).
+const OLLAMA_SCREEN_TIMEOUT_SECS: u64 = 15;
+
+/// Minimum elapsed time between OCR runs for the same window (seconds).
+const OCR_THROTTLE_SECS: u64 = 4;
+
+/// Maximum characters of OCR text to send to Ollama.
+const OCR_TEXT_MAX_CHARS: usize = 1500;
 
 /// Browsers that trigger LLM inference when they are the front window.
 const BROWSER_NAMES: &[&str] = &["Chrome", "Safari", "Arc", "Edge", "Brave", "Firefox"];
@@ -84,6 +97,11 @@ fn ensure_screen_recording_access() {}
 fn run_poll_loop(app: AppHandle) {
     let mut prev: Option<(Option<String>, Option<String>)> = None; // (project_id, task_id)
 
+    // OCR スロットリング用の前回状態
+    // (window_id, window_title) と前回 OCR 実行時刻
+    let mut last_ocr_key: Option<(u32, String)> = None;
+    let mut last_ocr_time: Option<std::time::Instant> = None;
+
     // 起動時に一度だけ画面収録権限を要求（リスト登録＋プロンプト）
     ensure_screen_recording_access();
 
@@ -113,8 +131,8 @@ fn run_poll_loop(app: AppHandle) {
             continue;
         }
 
-        // Detect front window under cursor
-        let (app_name, window_title) = match detect_front_window() {
+        // Detect front window under cursor (now returns window_id too)
+        let (app_name, window_title, window_id) = match detect_front_window() {
             Some(info) => info,
             None => continue,
         };
@@ -138,24 +156,82 @@ fn run_poll_loop(app: AppHandle) {
         };
         drop(conn);
 
-        // Determine project/task
+        // Determine project/task via name/LLM path (既存の高速パス)
         let payload = determine_focus(&app_name, &window_title, &projects, &tasks);
 
         // Debounce: skip emit if result identical to previous
         let key = (payload.project_id.clone(), payload.task_id.clone());
-        if prev.as_ref() == Some(&key) {
+        if prev.as_ref() != Some(&key) {
+            prev = Some(key.clone());
+            let _ = app.emit("focus_changed", &payload);
+        }
+
+        // ── OCR タスク認識（プロジェクトが特定されている時のみ）────────────────
+        let project_id = match &payload.project_id {
+            Some(pid) => pid.clone(),
+            None => continue,
+        };
+
+        // スロットリング: ウィンドウが変わった or 前回OCRから4秒以上経過した場合のみ実行
+        let ocr_key = (window_id, window_title.clone());
+        let should_run_ocr = {
+            let key_changed = last_ocr_key.as_ref() != Some(&ocr_key);
+            let time_elapsed = last_ocr_time
+                .map(|t| t.elapsed().as_secs() >= OCR_THROTTLE_SECS)
+                .unwrap_or(true);
+            key_changed || time_elapsed
+        };
+
+        if !should_run_ocr {
             continue;
         }
-        prev = Some(key);
 
-        let _ = app.emit("focus_changed", &payload);
+        // OCR実行時刻とキーを更新
+        last_ocr_key = Some(ocr_key);
+        last_ocr_time = Some(std::time::Instant::now());
+
+        // プロジェクトに属する未完了タスクを抽出
+        let pending_tasks: Vec<&crate::models::Task> = tasks
+            .iter()
+            .filter(|t| {
+                t.project_id == project_id
+                    && t.status != crate::models::TaskStatus::Done
+            })
+            .collect();
+
+        if pending_tasks.is_empty() {
+            continue;
+        }
+
+        // OCR+LLM でタスク特定（失敗時は黙ってスキップ）
+        if let Some(task_id) =
+            recognize_task_via_screen(window_id, &window_title, &project_id, &pending_tasks)
+        {
+            let screen_key = (Some(project_id.clone()), Some(task_id.clone()));
+            // 前回と同じ (projectId, taskId) ならスキップ
+            if prev.as_ref() == Some(&screen_key) {
+                continue;
+            }
+            prev = Some(screen_key);
+
+            let screen_payload = FocusChangedPayload {
+                project_id: Some(project_id),
+                task_id: Some(task_id),
+                source: "screen".to_string(),
+                app_name: app_name.clone(),
+                window_title: window_title.clone(),
+            };
+            let _ = app.emit("focus_changed", &screen_payload);
+        }
     }
 }
 
 // ── Window detection (macOS) ──────────────────────────────────────────────────
 
+/// Returns (app_name, window_title, window_id) for the on-screen window
+/// under the mouse cursor, or None if none found.
 #[cfg(target_os = "macos")]
-fn detect_front_window() -> Option<(String, String)> {
+fn detect_front_window() -> Option<(String, String, u32)> {
     use core_foundation::array::CFArray;
     use core_foundation::base::TCFType;
     use core_foundation::dictionary::CFDictionary;
@@ -171,7 +247,7 @@ fn detect_front_window() -> Option<(String, String)> {
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
     use core_graphics::window::{
         copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListOptionOnScreenOnly,
-        kCGWindowName, kCGWindowOwnerName,
+        kCGWindowName, kCGWindowNumber, kCGWindowOwnerName,
     };
 
     // 1. Get cursor position via a null CGEvent
@@ -189,6 +265,7 @@ fn detect_front_window() -> Option<(String, String)> {
     let bounds_key = CFString::new("kCGWindowBounds");
     let owner_key: CFString = unsafe { CFString::wrap_under_get_rule(kCGWindowOwnerName) };
     let name_key: CFString = unsafe { CFString::wrap_under_get_rule(kCGWindowName) };
+    let number_key: CFString = unsafe { CFString::wrap_under_get_rule(kCGWindowNumber) };
 
     // 3. Iterate windows front-to-back using raw CFArray access
     // SAFETY: `windows` is a valid CFArray whose elements are CFDictionaryRefs.
@@ -265,7 +342,18 @@ fn detect_front_window() -> Option<(String, String)> {
             })
             .unwrap_or_default();
 
-        return Some((app_name, window_title));
+        // kCGWindowNumber (u32 window ID used for screencapture -l)
+        let window_id: u32 = dict
+            .find(&number_key)
+            .and_then(|v| {
+                let num_ref: CFNumberRef = *v as CFNumberRef;
+                // SAFETY: value under kCGWindowNumber is a CFNumber.
+                let num: CFNumber = unsafe { TCFType::wrap_under_get_rule(num_ref) };
+                num.to_i64().map(|n| n as u32)
+            })
+            .unwrap_or(0);
+
+        return Some((app_name, window_title, window_id));
     }
 
     None
@@ -297,8 +385,118 @@ fn cf_dict_f64(
 
 /// Stub for non-macOS targets (keeps the crate cross-compilable).
 #[cfg(not(target_os = "macos"))]
-fn detect_front_window() -> Option<(String, String)> {
+fn detect_front_window() -> Option<(String, String, u32)> {
     None
+}
+
+// ── Screen OCR task recognition ───────────────────────────────────────────────
+
+/// Capture `window_id` with screencapture, run Vision OCR via Swift helper,
+/// then ask Ollama to identify which pending task the screen content matches.
+///
+/// Returns the matched `task_id`, or None on any failure / no match.
+/// Never panics — all errors are silently swallowed.
+fn recognize_task_via_screen(
+    window_id: u32,
+    _window_title: &str,
+    project_id: &str,
+    pending_tasks: &[&crate::models::Task],
+) -> Option<String> {
+    if window_id == 0 || pending_tasks.is_empty() {
+        return None;
+    }
+
+    // ── 1. Capture window to a temp PNG ──────────────────────────────────────
+    let tmp_png = std::env::temp_dir().join(format!("multitask_ocr_{project_id}.png"));
+    let capture_status = std::process::Command::new("screencapture")
+        .args([
+            "-x",  // no sound
+            "-o",  // no window shadow
+            "-l",
+            &window_id.to_string(),
+            tmp_png.to_str()?,
+        ])
+        .status()
+        .ok()?;
+
+    if !capture_status.success() {
+        return None;
+    }
+
+    // ── 2. OCR via Swift helper ──────────────────────────────────────────────
+    // Path is resolved at compile time from CARGO_MANIFEST_DIR.
+    let ocr_script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("ocr.swift");
+
+    // Check that swift is available; skip silently if not.
+    if std::process::Command::new("which")
+        .arg("swift")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        let _ = std::fs::remove_file(&tmp_png);
+        return None;
+    }
+
+    let ocr_output = std::process::Command::new("swift")
+        .arg(ocr_script)
+        .arg(&tmp_png)
+        .output()
+        .ok()?;
+
+    // Remove temp file regardless of outcome
+    let _ = std::fs::remove_file(&tmp_png);
+
+    let ocr_text = String::from_utf8_lossy(&ocr_output.stdout);
+    if ocr_text.trim().is_empty() {
+        return None;
+    }
+
+    // Truncate to max chars to avoid huge prompts
+    let ocr_truncated: String = ocr_text.chars().take(OCR_TEXT_MAX_CHARS).collect();
+
+    // ── 3. Ask Ollama to match a task ────────────────────────────────────────
+    let task_list: Vec<&str> = pending_tasks.iter().map(|t| t.title.as_str()).collect();
+    let tasks_joined = task_list.join("\n");
+
+    let prompt = format!(
+        "以下は画面のOCRテキストです:\n---\n{ocr_truncated}\n---\n\
+         以下の未完了タスク一覧の中から、画面の内容に最も対応するタスクを\
+         **タスク名の文言そのまま1つだけ**回答してください。\
+         該当するタスクがなければ \"none\" とだけ答えてください。\
+         余分な説明は不要です。\n\n\
+         タスク一覧:\n{tasks_joined}"
+    );
+
+    let body = serde_json::json!({
+        "model": OLLAMA_SCREEN_MODEL,
+        "prompt": prompt,
+        "stream": false,
+        "options": { "temperature": 0.1 }
+    });
+
+    let response = ureq::post("http://localhost:11434/api/generate")
+        .timeout(std::time::Duration::from_secs(OLLAMA_SCREEN_TIMEOUT_SECS))
+        .send_json(body)
+        .ok()?;
+
+    let json: serde_json::Value = response.into_json().ok()?;
+    let answer = json
+        .get("response")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())?;
+
+    if answer.eq_ignore_ascii_case("none") || answer.is_empty() {
+        return None;
+    }
+
+    // Match answer back to a real task id (exact title match)
+    pending_tasks
+        .iter()
+        .find(|t| t.title == answer)
+        .map(|t| t.id.clone())
 }
 
 // ── Focus determination ───────────────────────────────────────────────────────

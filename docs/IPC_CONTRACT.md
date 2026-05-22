@@ -87,7 +87,7 @@ interface HookInfo {
 |-----------|---------|-------------|
 | `board_changed` | なし | `get_board` を再取得してUI更新（hooks由来の更新もこれ経由） |
 | `ai_completed` | `{ projectId: string, taskId: string \| null, projectName: string, taskTitle: string \| null }` | トースト表示＋ハイライト（OS通知は Rust 側で送出） |
-| `focus_changed` | `{ projectId: string \| null, taskId: string \| null, source: "name" \| "llm" \| "none", appName: string, windowTitle: string }` | マウス直下から判定した「集中先」。`projectId` のカードを青ネオン発光、`taskId` のタスクを発光。`taskId=null` かつ `projectId` ありの場合はフロントが**最上位の未完了タスク**を発光（迷ったら上優先）。`projectId=null` は発光解除 |
+| `focus_changed` | `{ projectId: string \| null, taskId: string \| null, source: "name" \| "llm" \| "screen" \| "none", appName: string, windowTitle: string }` | マウス直下から判定した「集中先」。`projectId` のカードを発光、`taskId` のタスクを発光。`source="screen"` は画面OCR＋LLMでタスクを特定したもの。`taskId=null` かつ `projectId` ありの場合はフロントが**最上位の未完了タスク**を発光。`projectId=null` は発光解除 |
 
 ## マウス直下フォーカス検知（Rust, macOS）
 
