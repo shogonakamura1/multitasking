@@ -379,14 +379,22 @@ pub(crate) fn clean_task_lines(raw: &str) -> Vec<String> {
             };
             s.trim().to_string()
         })
-        .filter(|s| {
-            !s.is_empty()
-                && !s.eq_ignore_ascii_case("none")
-                && !s.eq_ignore_ascii_case("なし")
-                && !s.eq_ignore_ascii_case("ない")
-        })
+        .filter(|s| !is_junk_line(s))
         .take(5)
         .collect()
+}
+
+/// LLM が「空」のつもりで出す無意味な行や1文字ノイズを弾く。
+fn is_junk_line(s: &str) -> bool {
+    let t = s.trim();
+    if t.chars().count() < 2 {
+        return true; // 単一文字（"空" "-" 等）はノイズ
+    }
+    const JUNK: &[&str] = &[
+        "none", "n/a", "なし", "ない", "無し", "特になし", "該当なし", "タスクなし", "空行",
+        "（空）", "(空)",
+    ];
+    JUNK.iter().any(|j| t.eq_ignore_ascii_case(j))
 }
 
 /// "1. text" / "1) text" / "(1) text" の先頭番号を剥がす。
@@ -693,11 +701,11 @@ mod tests {
 
     #[test]
     fn clean_task_lines_limits_to_five() {
-        let raw = "A\nB\nC\nD\nE\nF\nG";
+        let raw = "タスクA\nタスクB\nタスクC\nタスクD\nタスクE\nタスクF\nタスクG";
         let result = clean_task_lines(raw);
         assert_eq!(result.len(), 5);
-        assert_eq!(result[0], "A");
-        assert_eq!(result[4], "E");
+        assert_eq!(result[0], "タスクA");
+        assert_eq!(result[4], "タスクE");
     }
 
     #[test]
@@ -705,5 +713,13 @@ mod tests {
         let raw = "テストを書く\nドキュメントを更新する";
         let result = clean_task_lines(raw);
         assert_eq!(result, vec!["テストを書く", "ドキュメントを更新する"]);
+    }
+
+    #[test]
+    fn clean_task_lines_filters_junk_and_single_char() {
+        // 「空」「空行」などの幻覚出力と1文字ノイズは除外し、実タスクだけ残す
+        let raw = "空\n空行\nなし\n-\nREADMEを更新する";
+        let result = clean_task_lines(raw);
+        assert_eq!(result, vec!["READMEを更新する"]);
     }
 }
