@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({\"event\":\"extract\",\"workdir\":d.get(\"cwd\",\"\"),\"transcript\":d.get(\"transcript_path\",\"\")}).encode(); u.urlopen(u.Request(\"http://127.0.0.1:49406/hook\",data=b,headers={\"Authorization\":\"Bearer 9oLsv8tSixB8cKUAbRjU1e628ViGtxpK\",\"Content-Type\":\"application/json\"}),timeout=2)'"
+            "command": "python3 -c 'import json,sys,os,urllib.request as u\ntry:\n c=json.load(open(os.path.expanduser(\"~/Library/Application Support/com.shogonakamura.multitasking/hook.json\")))\n d=json.load(sys.stdin)\n b=json.dumps({\"event\":\"extract\",\"workdir\":d.get(\"cwd\",\"\"),\"transcript\":d.get(\"transcript_path\",\"\")}).encode()\n u.urlopen(u.Request(\"http://127.0.0.1:%d/hook\"%c[\"port\"],data=b,headers={\"Authorization\":\"Bearer \"+c[\"token\"],\"Content-Type\":\"application/json\"}),timeout=2)\nexcept Exception:\n pass'"
           }
         ]
       }

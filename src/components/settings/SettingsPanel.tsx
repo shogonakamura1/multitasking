@@ -54,23 +54,30 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   };
 
-  // Claude Code hooks は標準入力に JSON（cwd / transcript_path 等）を渡すので python3 で読み取って転送する。
-  // Stop 時に transcript（会話ログ）のパスを送り、サーバ側でローカルLLMが依頼＋応答からタスクを抽出する。
-  const extractHookCmd = hookInfo
-    ? `python3 -c 'import sys,json,urllib.request as u; d=json.load(sys.stdin); b=json.dumps({"event":"extract","workdir":d.get("cwd",""),"transcript":d.get("transcript_path","")}).encode(); u.urlopen(u.Request("${hookInfo.url}",data=b,headers={"Authorization":"Bearer ${hookInfo.token}","Content-Type":"application/json"}),timeout=2)'`
-    : "";
+  // ポート/トークンは settings.json に埋め込まず、アプリが書き出す hook.json から実行時に読む。
+  // → 再起動でポートが変わっても貼り直し不要。アプリ停止中は例外を握りつぶして静かにスキップ（Claude Code にエラーを出さない）。
+  const HOOK_JSON_PATH =
+    "~/Library/Application Support/com.shogonakamura.multitasking/hook.json";
+  const extractHookCmd = [
+    `python3 -c 'import json,sys,os,urllib.request as u`,
+    `try:`,
+    ` c=json.load(open(os.path.expanduser("${HOOK_JSON_PATH}")))`,
+    ` d=json.load(sys.stdin)`,
+    ` b=json.dumps({"event":"extract","workdir":d.get("cwd",""),"transcript":d.get("transcript_path","")}).encode()`,
+    ` u.urlopen(u.Request("http://127.0.0.1:%d/hook"%c["port"],data=b,headers={"Authorization":"Bearer "+c["token"],"Content-Type":"application/json"}),timeout=2)`,
+    `except Exception:`,
+    ` pass'`,
+  ].join("\n");
 
-  const settingsJson = hookInfo
-    ? JSON.stringify(
-        {
-          hooks: {
-            Stop: [{ hooks: [{ type: "command", command: extractHookCmd }] }],
-          },
-        },
-        null,
-        2
-      )
-    : "";
+  const settingsJson = JSON.stringify(
+    {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: extractHookCmd }] }],
+      },
+    },
+    null,
+    2
+  );
 
   return (
     <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="設定">
@@ -141,11 +148,15 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 <strong>Stop</strong>（AI が応答を終えたタイミング）で、その回の
                 <strong>あなたの依頼とAIの応答</strong>を会話ログから読み取り、
                 ローカル LLM（<code>qwen2.5:3b</code>）が<strong>やるべきタスクを抽出</strong>して
-                自動追加します（作業ディレクトリに対応するプロジェクトへ。無ければフォルダ名で自動作成）。
+                自動追加します（作業ディレクトリに対応する既存プロジェクトのみ。一致しなければ何もしません）。
+                <br />
+                ※ ポート/トークンはアプリの <code>hook.json</code> から実行時に読むため、
+                <strong>一度貼れば再起動後も貼り直し不要</strong>です。
+                <strong>アプリ停止中はエラーを出さず静かにスキップ</strong>します。
                 <br />
                 ※ 標準入力の JSON（cwd・transcript_path）を読むため <code>python3</code>（macOS 標準）を使用します。
                 <br />
-                ※ 抽出には <code>ollama serve</code> の起動が必要です（未起動なら何も追加されません）。
+                ※ タスク抽出には <strong>multitasking アプリの起動</strong>と <code>ollama serve</code> が必要です（どちらか欠けると何も追加されません）。
               </p>
 
               <div className="settings-snippet">
