@@ -52,22 +52,34 @@ export function ProjectPanel({
   // ドラッグ並べ替え（未完了タスクのみ。完了は末尾固定）
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [endActive, setEndActive] = useState(false); // 末尾ドロップゾーンのハイライト
 
-  const handleDrop = (targetId: string) => {
+  // targetId=null のときは末尾に移動
+  const dropAt = (targetId: string | null) => {
     const sourceId = draggingId;
     setDraggingId(null);
     setDropTargetId(null);
-    if (!sourceId || sourceId === targetId) return;
+    setEndActive(false);
+    if (!sourceId) return;
     const ids = activeTasks.map((t) => t.id);
     const from = ids.indexOf(sourceId);
     if (from === -1) return;
-    // 先に元要素を取り除き、その後で対象の位置を求めて手前に挿入する
-    // （先に to を求めると、下方向ドラッグ時に削除でインデックスがずれ1つ先に入る）
-    ids.splice(from, 1);
-    const to = ids.indexOf(targetId);
-    if (to === -1) return;
-    ids.splice(to, 0, sourceId);
+    ids.splice(from, 1); // 先に取り除いてから挿入位置を決める（オフバイワン回避）
+    if (targetId === null) {
+      ids.push(sourceId); // 末尾へ
+    } else {
+      if (targetId === sourceId) return;
+      const to = ids.indexOf(targetId);
+      if (to === -1) return;
+      ids.splice(to, 0, sourceId); // 対象の手前へ
+    }
     void reorderProjectTasks(project.id, [...ids, ...doneTasks.map((t) => t.id)]);
+  };
+
+  const clearDrag = () => {
+    setDraggingId(null);
+    setDropTargetId(null);
+    setEndActive(false);
   };
 
   // ▲▼ ボタンによる並べ替え（未完了タスク内で1つ上/下に移動）
@@ -153,13 +165,28 @@ export function ProjectPanel({
             onDragLeave={() =>
               setDropTargetId((cur) => (cur === task.id ? null : cur))
             }
-            onDrop={() => handleDrop(task.id)}
-            onDragEnd={() => {
-              setDraggingId(null);
-              setDropTargetId(null);
-            }}
+            onDrop={() => dropAt(task.id)}
+            onDragEnd={clearDrag}
           />
         ))}
+
+        {/* 末尾ドロップゾーン: 下の空きエリアに落とすと末尾へ移動 */}
+        {activeTasks.length > 0 && (
+          <li
+            className={`todo-drop-end ${endActive ? "todo-drop-end--active" : ""}`}
+            onDragOver={(e) => {
+              if (!draggingId) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDropTargetId(null);
+              setEndActive(true);
+            }}
+            onDragLeave={() => setEndActive(false)}
+            onDrop={() => dropAt(null)}
+            aria-hidden="true"
+          />
+        )}
+
         {doneTasks.map((task) => (
           <TodoItem
             key={task.id}
