@@ -1331,16 +1331,22 @@
 .todo-item__status--blocked { color: var(--state-blocked); border: 1px solid var(--state-blocked); }
 
 .todo-item__delete {
-  font-size: 11px;
+  font-size: 18px;
+  line-height: 1;
   color: var(--text-faint);
   flex-shrink: 0;
-  opacity: 0;
-  padding: 0 2px;
-  transition: opacity var(--duration-fast), color var(--duration-fast);
+  opacity: 0.65;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--duration-fast), color var(--duration-fast),
+    background var(--duration-fast);
 }
 
 .todo-item:hover .todo-item__delete { opacity: 1; }
-.todo-item__delete:hover { color: var(--state-blocked); }
+.todo-item__delete:hover {
+  color: var(--state-blocked);
+  background: oklch(60% 0.18 25 / 0.15);
+}
 
 /* 並べ替え ▲▼ */
 .todo-item__move {

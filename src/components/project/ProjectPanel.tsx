@@ -136,9 +136,15 @@ export function ProjectPanel({
             canMoveDown={index < activeTasks.length - 1}
             isDragging={draggingId === task.id}
             isDropTarget={dropTargetId === task.id}
-            onDragStart={() => setDraggingId(task.id)}
+            onDragStart={(e) => {
+              // WKWebView では dataTransfer を設定しないと drop が発火しないことがある
+              e.dataTransfer.setData("text/plain", task.id);
+              e.dataTransfer.effectAllowed = "move";
+              setDraggingId(task.id);
+            }}
             onDragOver={(e) => {
               e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
               if (draggingId && draggingId !== task.id) setDropTargetId(task.id);
             }}
             onDragLeave={() =>
@@ -209,7 +215,7 @@ interface TodoItemProps {
   draggable?: boolean;
   isDragging?: boolean;
   isDropTarget?: boolean;
-  onDragStart?: () => void;
+  onDragStart?: (e: DragEvent) => void;
   onDragOver?: (e: DragEvent) => void;
   onDragLeave?: () => void;
   onDrop?: () => void;
