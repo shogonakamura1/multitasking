@@ -60,9 +60,12 @@ export function ProjectPanel({
     if (!sourceId || sourceId === targetId) return;
     const ids = activeTasks.map((t) => t.id);
     const from = ids.indexOf(sourceId);
-    const to = ids.indexOf(targetId);
-    if (from === -1 || to === -1) return;
+    if (from === -1) return;
+    // 先に元要素を取り除き、その後で対象の位置を求めて手前に挿入する
+    // （先に to を求めると、下方向ドラッグ時に削除でインデックスがずれ1つ先に入る）
     ids.splice(from, 1);
+    const to = ids.indexOf(targetId);
+    if (to === -1) return;
     ids.splice(to, 0, sourceId);
     void reorderProjectTasks(project.id, [...ids, ...doneTasks.map((t) => t.id)]);
   };
