@@ -322,11 +322,11 @@ function TodoItem({
       ) : (
         <span
           className="todo-item__title"
-          onClick={() => {
+          onDoubleClick={() => {
             setDraft(task.title);
             setEditing(true);
           }}
-          title="クリックで編集"
+          title="ダブルクリックで編集"
         >
           {task.title}
         </span>
